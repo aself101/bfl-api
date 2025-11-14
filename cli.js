@@ -140,6 +140,25 @@ ${'='.repeat(60)}
 
 15. Poll existing task
     $ npm run bfl -- --get-result abc123def456
+
+AUTHENTICATION OPTIONS:
+
+A. CLI flag (highest priority)
+   $ bfl --api-key YOUR_KEY --flux-dev --prompt "test"
+
+B. Environment variable
+   $ export BFL_API_KEY=YOUR_KEY
+   $ bfl --flux-dev --prompt "test"
+
+C. Local .env file (current directory)
+   $ echo "BFL_API_KEY=YOUR_KEY" > .env
+   $ bfl --flux-dev --prompt "test"
+
+D. Global config (for global installs)
+   $ mkdir -p ~/.bfl && echo "BFL_API_KEY=YOUR_KEY" > ~/.bfl/.env
+   $ bfl --flux-dev --prompt "test"
+
+${'='.repeat(60)}
 `);
 }
 
@@ -506,6 +525,7 @@ async function main() {
 
   // Utility options
   program
+    .option('--api-key <key>', 'BFL API key (overrides env vars and config files)')
     .option('--examples', 'Show usage examples and exit')
     .option('--credits', 'Check account credits balance')
     .option('--get-result <id>', 'Poll specific task ID for result')
@@ -530,7 +550,7 @@ async function main() {
   // Handle credits check
   if (options.credits) {
     try {
-      const api = new BflAPI({ logLevel: options.logLevel });
+      const api = new BflAPI({ apiKey: options.apiKey, logLevel: options.logLevel });
       const credits = await api.getUserCredits();
       logger.info('');
       logger.info('Account Credits:');
@@ -546,7 +566,7 @@ async function main() {
   // Handle get-result
   if (options.getResult) {
     try {
-      const api = new BflAPI({ logLevel: options.logLevel });
+      const api = new BflAPI({ apiKey: options.apiKey, logLevel: options.logLevel });
       const result = await api.getResult(options.getResult);
       logger.info('');
       logger.info(JSON.stringify(result, null, 2));
@@ -598,7 +618,7 @@ async function main() {
   try {
     // Initialize API
     logger.info('Initializing BFL API...');
-    const api = new BflAPI({ logLevel: options.logLevel });
+    const api = new BflAPI({ apiKey: options.apiKey, logLevel: options.logLevel });
     logger.info('✓ API initialized successfully');
     logger.info('');
 

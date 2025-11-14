@@ -2,7 +2,12 @@
  * Black Forest Labs API Configuration
  *
  * Handles authentication and API configuration settings.
- * API key should be stored in .env file as BFL_API_KEY.
+ *
+ * API key can be provided via (in priority order):
+ * 1. Command line flag: --api-key
+ * 2. Environment variable: BFL_API_KEY
+ * 3. Local .env file in current directory
+ * 4. Global config: ~/.bfl/.env (for global npm installs)
  *
  * To obtain an API key:
  * 1. Visit https://api.bfl.ml/
@@ -11,9 +16,19 @@
  */
 
 import dotenv from 'dotenv';
+import { existsSync } from 'fs';
+import { homedir } from 'os';
+import { join } from 'path';
 
-// Load environment variables
+// Load environment variables in priority order:
+// 1. First try local .env in current directory
 dotenv.config();
+
+// 2. Then try global config in home directory (if local .env doesn't exist)
+const globalConfigPath = join(homedir(), '.bfl', '.env');
+if (existsSync(globalConfigPath)) {
+  dotenv.config({ path: globalConfigPath });
+}
 
 // BFL API Base URLs
 export const BASE_URL = 'https://api.bfl.ai';
@@ -34,23 +49,35 @@ export const MODEL_ENDPOINTS = {
 };
 
 /**
- * Retrieve BFL API key from environment variables.
+ * Retrieve BFL API key from environment variables or CLI flag.
  *
+ * @param {string} [cliApiKey] - Optional API key passed via CLI flag (highest priority)
  * @returns {string} The BFL API key
- * @throws {Error} If BFL_API_KEY is not set in environment variables
+ * @throws {Error} If BFL_API_KEY is not found in any location
  *
  * @example
  * const apiKey = getBflApiKey();
+ * const apiKey = getBflApiKey('sk-xxxxx'); // From CLI flag
  */
-export function getBflApiKey() {
-  const apiKey = process.env.BFL_API_KEY;
+export function getBflApiKey(cliApiKey = null) {
+  // Priority order:
+  // 1. CLI flag (if provided)
+  // 2. Environment variable
+  const apiKey = cliApiKey || process.env.BFL_API_KEY;
 
   if (!apiKey) {
-    throw new Error(
-      'BFL_API_KEY not found in environment variables. ' +
-      'Please add it to your .env file. ' +
+    const errorMessage = [
+      'BFL_API_KEY not found. Please provide your API key via one of these methods:',
+      '',
+      '  1. CLI flag:           bfl --api-key YOUR_KEY --flux-dev --prompt "..."',
+      '  2. Environment var:    export BFL_API_KEY=YOUR_KEY',
+      '  3. Local .env file:    Create .env in current directory with BFL_API_KEY=YOUR_KEY',
+      '  4. Global config:      Create ~/.bfl/.env with BFL_API_KEY=YOUR_KEY',
+      '',
       'Get your API key at https://api.bfl.ml/'
-    );
+    ].join('\n');
+
+    throw new Error(errorMessage);
   }
 
   return apiKey;

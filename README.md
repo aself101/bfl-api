@@ -73,21 +73,56 @@ Maximum quality multi-reference image editing.
 3. Generate your API key from the dashboard
 4. Copy your API key
 
-### 2. Set Environment Variable
+### 2. Configure Your API Key
 
-Create a `.env` file in the `bfl-service` directory:
+You can provide your API key in multiple ways (listed in priority order):
 
-```bash
-cp .env.example .env
-```
-
-Edit `.env` and add your API key:
+#### Option A: CLI Flag (Highest Priority)
+Pass the API key directly when running commands:
 
 ```bash
-BFL_API_KEY=your_actual_api_key_here
+bfl --api-key YOUR_API_KEY --flux-dev --prompt "a cat"
 ```
 
-**Important:** Never commit your `.env` file or expose your API key publicly.
+This is useful for one-off commands or testing.
+
+#### Option B: Environment Variable
+Set the `BFL_API_KEY` environment variable in your shell:
+
+```bash
+# Add to your ~/.bashrc, ~/.zshrc, or equivalent
+export BFL_API_KEY=your_actual_api_key_here
+
+# Or use it for a single command
+BFL_API_KEY=your_key bfl --flux-dev --prompt "a cat"
+```
+
+This is ideal for CI/CD pipelines and server environments.
+
+#### Option C: Local .env File (Project-Specific)
+Create a `.env` file in your project directory:
+
+```bash
+# In your project directory
+echo "BFL_API_KEY=your_actual_api_key_here" > .env
+```
+
+This is best for project-specific configurations and when working on multiple projects.
+
+#### Option D: Global Config (For Global npm Installs)
+Create a global config file at `~/.bfl/.env`:
+
+```bash
+# Create config directory
+mkdir -p ~/.bfl
+
+# Add your API key
+echo "BFL_API_KEY=your_actual_api_key_here" > ~/.bfl/.env
+```
+
+This is perfect for global npm installations (`npm install -g bfl-api`) where you want the API key available everywhere.
+
+**Security Note:** Never commit `.env` files or expose your API key publicly. The `.env` file is automatically ignored by git.
 
 ## Installation
 
@@ -105,7 +140,7 @@ npm install bfl-api
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/bfl-api.git
+git clone https://github.com/aself101/bfl-api.git
 cd bfl-api
 
 # Install dependencies
@@ -571,7 +606,7 @@ Error: Cannot find module 'axios'
 
 **Solution:** Install dependencies:
 ```bash
-cd bfl-service
+cd bfl-api
 npm install
 ```
 

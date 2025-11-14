@@ -5,7 +5,7 @@
   "main": "api.js",
   "type": "module",
   "bin": {
-    "bfl": "./cli.js"
+    "bfl": "cli.js"
   },
   "exports": {
     ".": "./api.js",
@@ -54,12 +54,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/yourusername/img-gen.git"
+    "url": "git+https://github.com/aself101/bfl-api.git"
   },
   "bugs": {
-    "url": "https://github.com/yourusername/img-gen/issues"
+    "url": "https://github.com/aself101/bfl-api/issues"
   },
-  "homepage": "https://github.com/yourusername/img-gen#readme",
+  "homepage": "https://github.com/aself101/bfl-api#readme",
   "engines": {
     "node": ">=18.0.0"
   },
@@ -70,6 +70,7 @@
     "winston": "^3.11.0"
   },
   "devDependencies": {
-    "vitest": "^4.0.9"
+    "vitest": "^4.0.9",
+    "@vitest/coverage-v8": "^4.0.9"
   }
 }

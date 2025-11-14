@@ -124,7 +124,7 @@ Centralized configuration and environment variable handling:
 - `MAX_RETRIES` - 3 attempts
 
 **Functions**:
-- `getBflApiKey()` - Retrieve and validate `BFL_API_KEY` from `.env`
+- `getBflApiKey(cliApiKey)` - Retrieve and validate BFL API key from multiple sources (priority: CLI flag > env var > .env file > ~/.bfl/.env)
 - `validateApiKeyFormat(key)` - Basic format validation (length > 10)
 - `getOutputDir()` - Get output directory (default: `datasets/bfl`)
 - `getPollInterval()` - Get polling interval from env or default
@@ -147,12 +147,35 @@ import { getBflApiKey, MODEL_ENDPOINTS, BASE_URL } from 'bfl-api/config';
 
 ## Authentication
 
-API key is required and loaded from `.env` file:
+API key is required and can be provided via multiple methods (in priority order):
 
+### 1. CLI Flag (Highest Priority)
 ```bash
-# .env
+bfl --api-key YOUR_KEY --flux-dev --prompt "test"
+```
+- Best for: One-off commands, testing, overriding other configs
+
+### 2. Environment Variable
+```bash
+export BFL_API_KEY=your_api_key_here
+bfl --flux-dev --prompt "test"
+```
+- Best for: CI/CD pipelines, server environments, shell sessions
+
+### 3. Local .env File (Current Directory)
+```bash
+# .env in project directory
 BFL_API_KEY=your_api_key_here
 ```
+- Best for: Project-specific configurations, local development
+
+### 4. Global Config (Home Directory)
+```bash
+# ~/.bfl/.env
+BFL_API_KEY=your_api_key_here
+```
+- Best for: Global npm installations (`npm install -g bfl-api`)
+- Automatically loaded as fallback if no other source provides the key
 
 To obtain an API key:
 1. Visit https://api.bfl.ml/
