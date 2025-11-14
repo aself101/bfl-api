@@ -4,6 +4,23 @@ A Node.js wrapper for the [Black Forest Labs API](https://api.bfl.ml/) that prov
 
 This service follows the data-collection architecture pattern with organized data storage, automatic polling, retry logic, comprehensive logging, and CLI orchestration.
 
+## Quick Demo
+[![npm version](https://img.shields.io/npm/v/bfl-api.svg)](https://www.npmjs.com/package/bfl-api)
+[![asciicast](https://asciinema.org/a/755878.svg)](https://asciinema.org/a/755878)
+
+**[📺 Watch 3-minute CLI demo](https://asciinema.org/a/755878)** - Batch processing, auto-retry, and organized output in action.
+
+## Quick Start
+```bash
+# Install globally
+npm install -g bfl-api
+
+export BFL_API_KEY="my-bfl-api-key"
+
+# Generate an image
+bfl --flux-dev --prompt "a serene mountain landscape"
+```
+
 ## Table of Contents
 
 - [Overview](#overview)
