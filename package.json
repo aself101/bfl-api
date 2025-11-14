@@ -1,0 +1,75 @@
+{
+  "name": "bfl-api",
+  "version": "1.0.0",
+  "description": "Black Forest Labs API wrapper - FLUX and Kontext image generation for Node.js with CLI",
+  "main": "api.js",
+  "type": "module",
+  "bin": {
+    "bfl": "./cli.js"
+  },
+  "exports": {
+    ".": "./api.js",
+    "./api": "./api.js",
+    "./utils": "./utils.js",
+    "./config": "./config.js"
+  },
+  "files": [
+    "api.js",
+    "cli.js",
+    "utils.js",
+    "config.js",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "bfl": "node cli.js",
+    "bfl:help": "node cli.js --help",
+    "bfl:examples": "node cli.js --examples",
+    "bfl:credits": "node cli.js --credits",
+    "bfl:dev": "node cli.js --flux-dev",
+    "bfl:pro": "node cli.js --flux-pro",
+    "bfl:ultra": "node cli.js --flux-ultra",
+    "bfl:kontext-pro": "node cli.js --kontext-pro",
+    "bfl:kontext-max": "node cli.js --kontext-max",
+    "test": "vitest run",
+    "test:watch": "vitest watch",
+    "test:ui": "vitest --ui",
+    "test:coverage": "vitest run --coverage"
+  },
+  "keywords": [
+    "bfl",
+    "black-forest-labs",
+    "flux",
+    "flux-dev",
+    "flux-pro",
+    "flux-ultra",
+    "kontext",
+    "image-generation",
+    "ai-image",
+    "text-to-image",
+    "image-to-image",
+    "cli"
+  ],
+  "author": "img-gen Contributors",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/img-gen.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yourusername/img-gen/issues"
+  },
+  "homepage": "https://github.com/yourusername/img-gen#readme",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "axios": "^1.6.2",
+    "commander": "^11.1.0",
+    "dotenv": "^16.3.1",
+    "winston": "^3.11.0"
+  },
+  "devDependencies": {
+    "vitest": "^4.0.9"
+  }
+}

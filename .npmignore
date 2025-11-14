@@ -1,0 +1,38 @@
+# Development files
+.env
+.env.*
+!.env.example
+
+# Test files
+test.js
+test/
+*.test.js
+vitest.config.js
+coverage/
+
+# Data and output
+datasets/
+*.log
+
+# Development
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Git
+.git/
+.gitignore
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+
+# Documentation (keep README.md)
+docs/
+CLAUDE.md
+
+# Misc
+.DS_Store
+Thumbs.db
