@@ -157,28 +157,55 @@ Dependencies:
 
 ### Using the CLI
 
+The CLI command depends on how you installed the package:
+
+**If installed globally** (`npm install -g bfl-api`):
+```bash
+bfl --examples                    # Show 15+ usage examples
+bfl --flux-dev --prompt "a cat"   # Generate with FLUX.1 [dev]
+bfl --credits                     # Check account credits
+```
+
+**If installed locally** in a project:
+```bash
+npx bfl --examples                    # Show 15+ usage examples
+npx bfl --flux-dev --prompt "a cat"   # Generate with FLUX.1 [dev]
+npx bfl --credits                     # Check account credits
+```
+
+**If working from source** (cloned repository):
+```bash
+npm run bfl:examples              # Show 15+ usage examples
+npm run bfl -- --flux-dev --prompt "a cat"   # Generate
+npm run bfl:credits               # Check credits
+```
+
+### Example Commands
+
 ```bash
 # Show examples (15+ usage examples)
-npm run bfl:examples
+bfl --examples
 
 # Generate with FLUX.1 [dev]
-npm run bfl -- --flux-dev --prompt "a serene mountain landscape"
+bfl --flux-dev --prompt "a serene mountain landscape"
 
 # Generate with FLUX 1.1 [pro] Ultra
-npm run bfl -- --flux-ultra --prompt "cinematic sunset" --aspect-ratio "21:9" --raw
+bfl --flux-ultra --prompt "cinematic sunset" --aspect-ratio "21:9" --raw
 
 # Edit image with Kontext Pro
-npm run bfl -- --kontext-pro --prompt "make it winter" --input-image ./photo.jpg
+bfl --kontext-pro --prompt "make it winter" --input-image ./photo.jpg
 
 # Batch generation
-npm run bfl -- --flux-dev \
+bfl --flux-dev \
   --prompt "a cat" \
   --prompt "a dog" \
   --prompt "a bird"
 
 # Check credits
-npm run bfl:credits
+bfl --credits
 ```
+
+**Note:** Examples below use `bfl` directly (global install). If using local install, prefix with `npx`: `npx bfl --flux-dev ...`
 
 ### Using the API Class Directly
 
@@ -211,10 +238,14 @@ console.log('Image URL:', result.result.sample);
 ### Basic Command Structure
 
 ```bash
-npm run bfl -- [model] [options]
-
-# Or if installed globally:
+# Global install
 bfl [model] [options]
+
+# Local install (use npx)
+npx bfl [model] [options]
+
+# From source (development)
+npm run bfl -- [model] [options]
 ```
 
 ### Model Selection (Required)
@@ -398,10 +429,12 @@ console.log('Credits:', credits.credits);
 
 ## Examples
 
+**Note:** Examples use `bfl` command (global install). For local install, use `npx bfl` instead.
+
 ### Example 1: Basic Text-to-Image
 
 ```bash
-npm run bfl -- --flux-dev \
+bfl --flux-dev \
   --prompt "a serene mountain landscape at sunset" \
   --width 1024 \
   --height 768 \
@@ -412,7 +445,7 @@ npm run bfl -- --flux-dev \
 ### Example 2: High-Quality Cinematic Output
 
 ```bash
-npm run bfl -- --flux-ultra \
+bfl --flux-ultra \
   --prompt "cinematic wide shot of a futuristic city" \
   --aspect-ratio "21:9" \
   --raw
@@ -421,7 +454,7 @@ npm run bfl -- --flux-ultra \
 ### Example 3: Image Editing with Kontext
 
 ```bash
-npm run bfl -- --kontext-pro \
+bfl --kontext-pro \
   --prompt "transform into a watercolor painting" \
   --input-image ./photos/landscape.jpg
 ```
@@ -429,7 +462,7 @@ npm run bfl -- --kontext-pro \
 ### Example 4: Batch Generation
 
 ```bash
-npm run bfl -- --flux-dev \
+bfl --flux-dev \
   --prompt "a red apple" \
   --prompt "a green pear" \
   --prompt "a yellow banana" \
@@ -439,7 +472,7 @@ npm run bfl -- --flux-dev \
 ### Example 5: Redux Image-to-Image
 
 ```bash
-npm run bfl -- --flux-pro \
+bfl --flux-pro \
   --prompt "same style but at night" \
   --image-prompt ./reference.jpg \
   --width 1024 \
@@ -610,11 +643,13 @@ cd bfl-api
 npm install
 ```
 
-## NPM Scripts
+## Development Scripts
 
-Convenient npm scripts in `package.json`:
+**Note:** These npm scripts are only available when working from the source repository (cloned from GitHub). They are not available after installing via npm.
 
-### CLI Commands
+If you're using the installed package, use `bfl` (global) or `npx bfl` (local) instead.
+
+### For Source Development
 ```bash
 npm run bfl              # Run CLI
 npm run bfl:help         # Show help
