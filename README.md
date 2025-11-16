@@ -89,7 +89,7 @@ Maximum quality multi-reference image editing.
 
 ### 1. Get Your API Key
 
-1. Visit [https://api.bfl.ml/](https://api.bfl.ml/)
+1. Visit [https://docs.bfl.ai/quick_start/introduction/](https://docs.bfl.ai/quick_start/introduction)
 2. Create an account or sign in
 3. Generate your API key from the dashboard
 4. Copy your API key
