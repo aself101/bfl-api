@@ -48,6 +48,36 @@ export const MODEL_ENDPOINTS = {
   'kontext-max': '/v1/flux-kontext-max'
 };
 
+// Model parameter constraints
+export const MODEL_CONSTRAINTS = {
+  'flux-dev': {
+    width: { min: 256, max: 1440, divisibleBy: 32 },
+    height: { min: 256, max: 1440, divisibleBy: 32 },
+    steps: { min: 1, max: 50 },
+    guidance: { min: 1.5, max: 5 },
+    promptMaxLength: 10000
+  },
+  'flux-pro': {
+    width: { min: 256, max: 1440, divisibleBy: 32 },
+    height: { min: 256, max: 1440, divisibleBy: 32 },
+    promptMaxLength: 10000
+  },
+  'flux-ultra': {
+    aspectRatios: ['21:9', '16:9', '4:3', '1:1', '3:4', '9:16', '9:21'],
+    raw: [true, false],
+    imagePromptStrength: { min: 0, max: 1 },
+    promptMaxLength: 10000
+  },
+  'kontext-pro': {
+    aspectRatios: ['21:9', '16:9', '4:3', '1:1', '3:4', '9:16', '9:21'],
+    promptMaxLength: 10000
+  },
+  'kontext-max': {
+    aspectRatios: ['21:9', '16:9', '4:3', '1:1', '3:4', '9:16', '9:21'],
+    promptMaxLength: 10000
+  }
+};
+
 /**
  * Retrieve BFL API key from environment variables or CLI flag.
  *
@@ -129,4 +159,112 @@ export function getPollInterval() {
 export function getTimeout() {
   const timeout = parseInt(process.env.BFL_TIMEOUT);
   return isNaN(timeout) ? DEFAULT_TIMEOUT : timeout;
+}
+
+/**
+ * Validate model parameters against constraints.
+ * Pre-flight validation to catch errors before making API calls and wasting credits.
+ *
+ * @param {string} model - Model name (flux-dev, flux-pro, flux-ultra, kontext-pro, kontext-max)
+ * @param {Object} params - Parameters to validate
+ * @returns {Object} Validation result { valid: boolean, errors: string[] }
+ *
+ * @example
+ * const validation = validateModelParams('flux-dev', { width: 512, height: 512, steps: 30 });
+ * if (!validation.valid) {
+ *   console.error('Validation errors:', validation.errors);
+ * }
+ */
+export function validateModelParams(model, params) {
+  const errors = [];
+  const constraints = MODEL_CONSTRAINTS[model];
+
+  if (!constraints) {
+    errors.push(`Unknown model: ${model}`);
+    return { valid: false, errors };
+  }
+
+  // Validate prompt length
+  if (params.prompt && params.prompt.length > constraints.promptMaxLength) {
+    errors.push(
+      `Prompt exceeds maximum length of ${constraints.promptMaxLength} characters for ${model}`
+    );
+  }
+
+  // Validate width (flux-dev, flux-pro)
+  if (params.width !== undefined && constraints.width) {
+    const { min, max, divisibleBy } = constraints.width;
+    if (params.width < min || params.width > max) {
+      errors.push(`Width must be between ${min} and ${max} for ${model}`);
+    }
+    if (params.width % divisibleBy !== 0) {
+      errors.push(`Width must be divisible by ${divisibleBy} for ${model}`);
+    }
+  }
+
+  // Validate height (flux-dev, flux-pro)
+  if (params.height !== undefined && constraints.height) {
+    const { min, max, divisibleBy } = constraints.height;
+    if (params.height < min || params.height > max) {
+      errors.push(`Height must be between ${min} and ${max} for ${model}`);
+    }
+    if (params.height % divisibleBy !== 0) {
+      errors.push(`Height must be divisible by ${divisibleBy} for ${model}`);
+    }
+  }
+
+  // Validate steps (flux-dev only)
+  if (params.steps !== undefined && constraints.steps) {
+    const { min, max } = constraints.steps;
+    if (params.steps < min || params.steps > max) {
+      errors.push(`Steps must be between ${min} and ${max} for ${model}`);
+    }
+  }
+
+  // Validate guidance (flux-dev only)
+  if (params.guidance !== undefined && constraints.guidance) {
+    const { min, max } = constraints.guidance;
+    if (params.guidance < min || params.guidance > max) {
+      errors.push(`Guidance must be between ${min} and ${max} for ${model}`);
+    }
+  }
+
+  // Validate aspect_ratio (flux-ultra, kontext models)
+  if (params.aspect_ratio && constraints.aspectRatios) {
+    if (!constraints.aspectRatios.includes(params.aspect_ratio)) {
+      errors.push(
+        `Invalid aspect_ratio "${params.aspect_ratio}" for ${model}. Valid ratios: ${constraints.aspectRatios.join(', ')}`
+      );
+    }
+  }
+
+  // Validate raw (flux-ultra only)
+  if (params.raw !== undefined && constraints.raw) {
+    if (!constraints.raw.includes(params.raw)) {
+      errors.push(`Invalid raw value for ${model}. Must be true or false`);
+    }
+  }
+
+  // Validate image_prompt_strength (flux-ultra)
+  if (params.image_prompt_strength !== undefined && constraints.imagePromptStrength) {
+    const { min, max } = constraints.imagePromptStrength;
+    if (params.image_prompt_strength < min || params.image_prompt_strength > max) {
+      errors.push(`image_prompt_strength must be between ${min} and ${max} for ${model}`);
+    }
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors
+  };
+}
+
+/**
+ * Get model constraints for a specific model.
+ *
+ * @param {string} model - Model name
+ * @returns {Object|null} Model constraints or null if model not found
+ */
+export function getModelConstraints(model) {
+  return MODEL_CONSTRAINTS[model] || null;
 }

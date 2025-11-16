@@ -8,12 +8,15 @@ import {
   BASE_URL,
   US_BASE_URL,
   MODEL_ENDPOINTS,
+  MODEL_CONSTRAINTS,
   DEFAULT_POLL_INTERVAL,
   DEFAULT_TIMEOUT,
   MAX_RETRIES,
   getOutputDir,
   getPollInterval,
-  getTimeout
+  getTimeout,
+  validateModelParams,
+  getModelConstraints
 } from '../config.js';
 
 describe('Configuration Constants', () => {
@@ -113,6 +116,108 @@ describe('Configuration Functions', () => {
     it('should return DEFAULT_TIMEOUT when env not set', () => {
       const timeout = getTimeout();
       expect(timeout).toBe(DEFAULT_TIMEOUT);
+    });
+  });
+
+  describe('validateModelParams', () => {
+    describe('flux-dev validation', () => {
+      it('should accept valid flux-dev parameters', () => {
+        const result = validateModelParams('flux-dev', {
+          prompt: 'a cat',
+          width: 1024,
+          height: 768,
+          steps: 28,
+          guidance: 3
+        });
+        expect(result.valid).toBe(true);
+        expect(result.errors).toHaveLength(0);
+      });
+
+      it('should reject width not divisible by 32', () => {
+        const result = validateModelParams('flux-dev', { width: 1000 });
+        expect(result.valid).toBe(false);
+        expect(result.errors.some(e => e.includes('divisible by 32'))).toBe(true);
+      });
+
+      it('should reject width out of range', () => {
+        const result = validateModelParams('flux-dev', { width: 2000 });
+        expect(result.valid).toBe(false);
+        expect(result.errors.some(e => e.includes('Width must be between'))).toBe(true);
+      });
+
+      it('should reject steps out of range', () => {
+        const result = validateModelParams('flux-dev', { steps: 100 });
+        expect(result.valid).toBe(false);
+        expect(result.errors.some(e => e.includes('Steps must be between'))).toBe(true);
+      });
+
+      it('should reject guidance out of range', () => {
+        const result = validateModelParams('flux-dev', { guidance: 10 });
+        expect(result.valid).toBe(false);
+        expect(result.errors.some(e => e.includes('Guidance must be between'))).toBe(true);
+      });
+    });
+
+    describe('flux-ultra validation', () => {
+      it('should accept valid aspect ratios', () => {
+        const validRatios = ['21:9', '16:9', '4:3', '1:1', '3:4', '9:16', '9:21'];
+        validRatios.forEach(ratio => {
+          const result = validateModelParams('flux-ultra', { aspect_ratio: ratio });
+          expect(result.valid).toBe(true);
+        });
+      });
+
+      it('should reject invalid aspect ratio', () => {
+        const result = validateModelParams('flux-ultra', { aspect_ratio: '32:9' });
+        expect(result.valid).toBe(false);
+        expect(result.errors.some(e => e.includes('Invalid aspect_ratio'))).toBe(true);
+      });
+
+      it('should validate image_prompt_strength range', () => {
+        const validResult = validateModelParams('flux-ultra', { image_prompt_strength: 0.5 });
+        expect(validResult.valid).toBe(true);
+
+        const invalidResult = validateModelParams('flux-ultra', { image_prompt_strength: 2 });
+        expect(invalidResult.valid).toBe(false);
+        expect(invalidResult.errors.some(e => e.includes('image_prompt_strength'))).toBe(true);
+      });
+    });
+
+    describe('prompt length validation', () => {
+      it('should reject prompts exceeding max length', () => {
+        const longPrompt = 'a'.repeat(10001);
+        const result = validateModelParams('flux-dev', { prompt: longPrompt });
+        expect(result.valid).toBe(false);
+        expect(result.errors.some(e => e.includes('Prompt exceeds maximum length'))).toBe(true);
+      });
+
+      it('should accept prompts within max length', () => {
+        const validPrompt = 'a'.repeat(1000);
+        const result = validateModelParams('flux-dev', { prompt: validPrompt });
+        expect(result.valid).toBe(true);
+      });
+    });
+
+    describe('unknown model', () => {
+      it('should reject unknown model', () => {
+        const result = validateModelParams('invalid-model', {});
+        expect(result.valid).toBe(false);
+        expect(result.errors.some(e => e.includes('Unknown model'))).toBe(true);
+      });
+    });
+  });
+
+  describe('getModelConstraints', () => {
+    it('should return constraints for valid model', () => {
+      const constraints = getModelConstraints('flux-dev');
+      expect(constraints).toBeDefined();
+      expect(constraints.width).toBeDefined();
+      expect(constraints.steps).toBeDefined();
+    });
+
+    it('should return null for invalid model', () => {
+      const constraints = getModelConstraints('invalid-model');
+      expect(constraints).toBeNull();
     });
   });
 });

@@ -32,6 +32,8 @@ bfl --flux-dev --prompt "a serene mountain landscape"
 - [API Methods](#api-methods)
 - [Examples](#examples)
 - [Data Organization](#data-organization)
+- [Security Features](#security-features)
+- [Error Handling](#error-handling)
 - [Troubleshooting](#troubleshooting)
 
 ## Overview
@@ -39,15 +41,17 @@ bfl --flux-dev --prompt "a serene mountain landscape"
 The Black Forest Labs API provides access to state-of-the-art image generation models. This Node.js service implements:
 
 - **5 Generation Models** - FLUX.1 [dev], FLUX 1.1 [pro], FLUX Ultra, Kontext Pro, Kontext Max
+- **Production Security** - API key redaction, error sanitization, HTTPS enforcement, comprehensive SSRF protection (including IPv4-mapped IPv6 bypass prevention)
+- **DoS Prevention** - Request timeouts (30s API, 60s downloads), file size limits (50MB), redirect limits
 - **Parameter Validation** - Pre-flight validation catches invalid parameters before API calls
-- **API Key Authentication** - Simple API key authentication
+- **API Key Authentication** - Multiple configuration methods with secure handling
 - **Auto-polling with Spinner** - Automatic result polling with animated progress indicator
 - **Batch Processing** - Generate multiple images sequentially from multiple prompts
 - **Retry Logic** - Exponential backoff for transient errors
-- **Image Input Support** - Convert local files or URLs to base64 automatically
+- **Image Input Support** - Convert local files or URLs to base64 with validation
 - **Organized Storage** - Structured directories with timestamped files and metadata
 - **CLI Orchestration** - Command-line tool for easy batch generation
-- **Comprehensive Testing** - 43 tests with Vitest for reliability
+- **Comprehensive Testing** - 82 tests with Vitest for reliability
 
 ## Models
 
@@ -570,6 +574,65 @@ datasets/
   }
 }
 ```
+
+## Security Features
+
+This service implements production-ready security measures to protect your API keys and prevent common vulnerabilities:
+
+### API Key Protection
+- **Redacted Logging**: API keys are never logged in full. Logs show only the last 4 characters (e.g., `xxx...abc1234`)
+- **Secure Storage**: API keys read from environment variables or `.env` files (never committed to version control)
+- **Multiple Sources**: Supports CLI flags, environment variables, local `.env`, and global config
+
+### Error Message Sanitization
+- **Production Mode**: Set `NODE_ENV=production` to enable generic error messages
+- **Development Mode**: Detailed error messages for debugging (default)
+- **Information Disclosure Prevention**: Production errors don't reveal internal system details
+
+```bash
+# Enable production mode for sanitized errors
+export NODE_ENV=production
+bfl --flux-dev --prompt "a cat"
+```
+
+### SSRF Protection (Server-Side Request Forgery)
+When processing image URLs (for `--image-prompt` or `--input-image`), the service validates and blocks:
+- **Localhost Access**: `127.0.0.1`, `::1`, `localhost`
+- **Private IP Ranges**: `10.x.x.x`, `192.168.x.x`, `172.16-31.x.x`
+- **Link-Local Addresses**: `169.254.x.x` (AWS/Azure metadata endpoints)
+- **Cloud Metadata**: `metadata.google.internal`, `169.254.169.254`
+- **IPv4-Mapped IPv6 Bypass Prevention**: Detects and blocks `[::ffff:127.0.0.1]`, `[::ffff:10.0.0.1]`, etc.
+- **HTTP URLs**: Only HTTPS URLs are accepted
+
+This prevents attackers from using the service to access internal network resources, including sophisticated bypass attempts using IPv4-mapped IPv6 addresses.
+
+### Image File Validation
+- **Magic Byte Checking**: Validates PNG, JPEG, WebP, and GIF formats by actual file headers (not just extensions)
+- **File Size Limits**: 50MB maximum for downloaded images (prevents memory exhaustion)
+- **Format Verification**: Rejects non-image files masquerading as images
+- **Download Timeouts**: 60-second timeout for image downloads (prevents slowloris attacks)
+
+### HTTPS Enforcement
+- All API base URLs must use HTTPS protocol
+- Constructor throws an error if HTTP URL is provided
+- Prevents man-in-the-middle attacks
+
+### Request Timeout & Size Protection
+- **API Request Timeout**: 30-second timeout for all API calls
+- **Download Timeout**: 60-second timeout for image downloads
+- **Maximum File Size**: 50MB limit for downloaded images
+- **Redirect Limits**: Maximum 5 redirects to prevent redirect loops
+- **DoS Prevention**: Prevents resource exhaustion and slowloris-style attacks
+
+### Parameter Validation
+- Pre-flight validation using `validateModelParams()` before API calls
+- Catches invalid parameters early (saves API credits)
+- Validates:
+  - Width/height (256-1440, divisible by 32)
+  - Steps (1-50 for FLUX.1 [dev])
+  - Guidance (1.5-5 for FLUX.1 [dev])
+  - Aspect ratios (valid ratios like "16:9", "21:9")
+  - Prompt length (max 10,000 characters)
 
 ## Error Handling
 

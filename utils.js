@@ -6,7 +6,7 @@
  */
 
 import fs from 'fs/promises';
-import { createReadStream, createWriteStream } from 'fs';
+import { createReadStream, createWriteStream, statSync } from 'fs';
 import path from 'path';
 import { promisify } from 'util';
 import winston from 'winston';
@@ -25,6 +25,190 @@ const logger = winston.createLogger({
     new winston.transports.Console()
   ]
 });
+
+/**
+ * Validate image URL for security.
+ * Enforces HTTPS and blocks private IPs, localhost, and cloud metadata endpoints.
+ *
+ * @param {string} url - URL to validate
+ * @returns {string} Validated URL
+ * @throws {Error} If URL is invalid or insecure
+ */
+export function validateImageUrl(url) {
+  // First check for IPv4-mapped IPv6 in the original URL string (before URL parsing normalizes it)
+  // This prevents SSRF bypass via https://[::ffff:127.0.0.1] or https://[::ffff:169.254.169.254]
+  const ipv6MappedMatch = url.match(/\[::ffff:(\d+\.\d+\.\d+\.\d+)\]/i);
+  if (ipv6MappedMatch) {
+    const extractedIPv4 = ipv6MappedMatch[1];
+    logger.warn(`SECURITY: Detected IPv4-mapped IPv6 address in URL: ${url} → ${extractedIPv4}`);
+
+    // Validate the extracted IPv4 directly
+    if (extractedIPv4 === '127.0.0.1' || extractedIPv4.startsWith('127.')) {
+      logger.warn(`SECURITY: Blocked IPv4-mapped IPv6 localhost: ${url}`);
+      throw new Error('Access to localhost is not allowed');
+    }
+
+    // Check against private IP patterns
+    const privatePatterns = [
+      /^10\./,                     // Private Class A
+      /^172\.(1[6-9]|2[0-9]|3[0-1])\./, // Private Class B
+      /^192\.168\./,               // Private Class C
+      /^169\.254\./,               // Link-local (AWS metadata)
+      /^0\./,                      // Invalid range
+    ];
+
+    if (privatePatterns.some(pattern => pattern.test(extractedIPv4))) {
+      logger.warn(`SECURITY: Blocked IPv4-mapped IPv6 private IP: ${url}`);
+      throw new Error('Access to internal/private IP addresses is not allowed');
+    }
+  }
+
+  let parsed;
+
+  try {
+    parsed = new URL(url);
+  } catch (error) {
+    throw new Error(`Invalid URL: ${url}`);
+  }
+
+  // Only allow HTTPS (not HTTP)
+  if (parsed.protocol !== 'https:') {
+    throw new Error('Only HTTPS URLs are allowed for security reasons');
+  }
+
+  const hostname = parsed.hostname.toLowerCase();
+
+  // Block localhost variations (including IPv6 bracket notation)
+  const cleanHostname = hostname.replace(/^\[|\]$/g, ''); // Remove IPv6 brackets
+
+  // Check against the actual IP
+  const hostnameToCheck = cleanHostname;
+
+  if (hostnameToCheck === 'localhost' || hostnameToCheck === '127.0.0.1' || hostnameToCheck === '::1') {
+    logger.warn(`SECURITY: Blocked access to localhost: ${hostname}`);
+    throw new Error('Access to localhost is not allowed');
+  }
+
+  // Block private IP ranges and special addresses
+  const blockedPatterns = [
+    /^127\./,                    // Loopback
+    /^10\./,                     // Private Class A
+    /^172\.(1[6-9]|2[0-9]|3[0-1])\./, // Private Class B
+    /^192\.168\./,               // Private Class C
+    /^169\.254\./,               // Link-local (AWS metadata)
+    /^0\./,                      // Invalid range
+    /^::1$/,                     // IPv6 loopback
+    /^fe80:/,                    // IPv6 link-local
+    /^fc00:/,                    // IPv6 unique local
+    /^fd00:/,                    // IPv6 unique local
+  ];
+
+  // Block cloud metadata endpoints
+  const blockedHosts = [
+    'metadata.google.internal',  // GCP metadata
+    'metadata',                  // Generic metadata
+    '169.254.169.254',          // AWS/Azure metadata IP
+  ];
+
+  if (blockedHosts.includes(hostnameToCheck)) {
+    logger.warn(`SECURITY: Blocked access to cloud metadata endpoint: ${hostname}`);
+    throw new Error('Access to cloud metadata endpoints is not allowed');
+  }
+
+  if (blockedPatterns.some(pattern => pattern.test(hostnameToCheck))) {
+    logger.warn(`SECURITY: Blocked access to private IP address: ${hostname}`);
+    throw new Error('Access to internal/private IP addresses is not allowed');
+  }
+
+  return url;
+}
+
+/**
+ * Validate image file path.
+ * Checks file exists, is readable, and has valid image magic bytes.
+ *
+ * @param {string} filepath - Path to image file
+ * @returns {Promise<string>} Validated filepath
+ * @throws {Error} If file doesn't exist, isn't readable, or isn't a valid image
+ */
+export async function validateImagePath(filepath) {
+  try {
+    const buffer = await fs.readFile(filepath);
+
+    // Check file size (must be > 0)
+    if (buffer.length === 0) {
+      throw new Error(`Image file is empty: ${filepath}`);
+    }
+
+    // Check magic bytes for common image formats
+    const magicBytes = buffer.slice(0, 4);
+    const isPNG = magicBytes[0] === 0x89 && magicBytes[1] === 0x50 && magicBytes[2] === 0x4E && magicBytes[3] === 0x47;
+    const isJPEG = magicBytes[0] === 0xFF && magicBytes[1] === 0xD8 && magicBytes[2] === 0xFF;
+    const isWebP = buffer.slice(8, 12).toString() === 'WEBP';
+    const isGIF = magicBytes.slice(0, 3).toString() === 'GIF';
+
+    if (!isPNG && !isJPEG && !isWebP && !isGIF) {
+      throw new Error(`File does not appear to be a valid image (PNG, JPEG, WebP, or GIF): ${filepath}`);
+    }
+
+    return filepath;
+  } catch (error) {
+    if (error.code === 'ENOENT') {
+      throw new Error(`Image file not found: ${filepath}`);
+    } else if (error.code === 'EACCES') {
+      throw new Error(`Permission denied reading image file: ${filepath}`);
+    }
+    throw error;
+  }
+}
+
+/**
+ * Validate image file against constraints.
+ * Checks file size and format.
+ *
+ * @param {string} filepath - Path to image file
+ * @param {Object} constraints - Validation constraints
+ * @param {number} constraints.maxSize - Maximum file size in bytes
+ * @param {string[]} constraints.formats - Allowed file formats (e.g., ['png', 'jpg', 'jpeg'])
+ * @returns {Promise<Object>} Validation result { valid: boolean, errors: string[] }
+ */
+export async function validateImageFile(filepath, constraints = {}) {
+  const errors = [];
+
+  try {
+    // Check if file exists
+    const stats = statSync(filepath);
+
+    // Check file size
+    if (constraints.maxSize && stats.size > constraints.maxSize) {
+      const maxMB = (constraints.maxSize / (1024 * 1024)).toFixed(1);
+      const actualMB = (stats.size / (1024 * 1024)).toFixed(1);
+      errors.push(
+        `Image file size (${actualMB}MB) exceeds maximum (${maxMB}MB)`
+      );
+    }
+
+    // Check file extension
+    const ext = path.extname(filepath).toLowerCase().substring(1);
+    if (constraints.formats && !constraints.formats.includes(ext)) {
+      errors.push(
+        `Image format "${ext}" not supported. Valid formats: ${constraints.formats.join(', ')}`
+      );
+    }
+
+  } catch (error) {
+    if (error.code === 'ENOENT') {
+      errors.push(`Image file not found: ${filepath}`);
+    } else {
+      errors.push(`Error validating image file: ${error.message}`);
+    }
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors
+  };
+}
 
 /**
  * Ensure a directory exists, creating it if necessary.
@@ -165,15 +349,27 @@ export async function fileToBase64(filepath) {
  * @param {string} url - Image URL
  * @returns {Promise<string>} Base64-encoded image string
  *
- * @throws {Error} If URL can't be fetched
+ * @throws {Error} If URL can't be fetched or exceeds size limit
  */
 export async function urlToBase64(url) {
   try {
+    const MAX_SIZE = 50 * 1024 * 1024; // 50MB limit
+
     const response = await axios.get(url, {
-      responseType: 'arraybuffer'
+      responseType: 'arraybuffer',
+      timeout: 60000,              // 60 second timeout for large files
+      maxRedirects: 5,             // Limit redirects
+      maxContentLength: MAX_SIZE,  // Axios built-in size limit
+      maxBodyLength: MAX_SIZE      // Axios built-in size limit
     });
+
+    // Verify actual size (belt-and-suspenders approach)
+    if (response.data.length > MAX_SIZE) {
+      throw new Error(`Image exceeds maximum size of ${MAX_SIZE / (1024 * 1024)}MB`);
+    }
+
     const base64 = Buffer.from(response.data).toString('base64');
-    logger.debug(`Downloaded and converted ${url} to base64 (${base64.length} chars)`);
+    logger.debug(`Downloaded and converted ${url} to base64 (${base64.length} chars, ${response.data.length} bytes)`);
     return base64;
   } catch (error) {
     logger.error(`Error downloading image from URL: ${error.message}`);
@@ -183,15 +379,21 @@ export async function urlToBase64(url) {
 
 /**
  * Convert image input (file path or URL) to base64 string.
+ * Validates URL/file path before conversion for security.
  *
  * @param {string} input - Local file path or URL
  * @returns {Promise<string>} Base64-encoded image string
+ * @throws {Error} If validation fails or conversion fails
  */
 export async function imageToBase64(input) {
   // Check if input is a URL
   if (input.startsWith('http://') || input.startsWith('https://')) {
+    // Validate URL for security (SSRF protection)
+    validateImageUrl(input);
     return await urlToBase64(input);
   } else {
+    // Validate file path (existence and format)
+    await validateImagePath(input);
     return await fileToBase64(input);
   }
 }
@@ -208,12 +410,23 @@ export async function downloadImage(url, filepath) {
     const dir = path.dirname(filepath);
     await ensureDirectory(dir);
 
+    const MAX_SIZE = 50 * 1024 * 1024; // 50MB limit
+
     const response = await axios.get(url, {
-      responseType: 'arraybuffer'
+      responseType: 'arraybuffer',
+      timeout: 60000,              // 60 second timeout for large files
+      maxRedirects: 5,             // Limit redirects
+      maxContentLength: MAX_SIZE,  // Axios built-in size limit
+      maxBodyLength: MAX_SIZE      // Axios built-in size limit
     });
 
+    // Verify actual size
+    if (response.data.length > MAX_SIZE) {
+      throw new Error(`Image exceeds maximum size of ${MAX_SIZE / (1024 * 1024)}MB`);
+    }
+
     await fs.writeFile(filepath, Buffer.from(response.data));
-    logger.info(`Downloaded image to ${filepath}`);
+    logger.info(`Downloaded image to ${filepath} (${response.data.length} bytes)`);
   } catch (error) {
     logger.error(`Error downloading image: ${error.message}`);
     throw error;

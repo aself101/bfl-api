@@ -75,6 +75,68 @@ describe('BflAPI Class', () => {
     });
   });
 
+  describe('Security Features', () => {
+    it('should have _redactApiKey method', () => {
+      expect(api._redactApiKey).toBeDefined();
+      expect(typeof api._redactApiKey).toBe('function');
+    });
+
+    it('should redact API key showing only last 4 characters', () => {
+      const testKey = 'sk-1234567890abcdef';
+      const redacted = api._redactApiKey(testKey);
+      expect(redacted).toBe('xxx...cdef');
+      expect(redacted).not.toContain('1234567890');
+    });
+
+    it('should redact short API keys completely', () => {
+      const shortKey = 'abc123';
+      const redacted = api._redactApiKey(shortKey);
+      expect(redacted).toBe('[REDACTED]');
+    });
+
+    it('should have _sanitizeErrorMessage method', () => {
+      expect(api._sanitizeErrorMessage).toBeDefined();
+      expect(typeof api._sanitizeErrorMessage).toBe('function');
+    });
+
+    it('should sanitize error messages in production', () => {
+      const originalEnv = process.env.NODE_ENV;
+      process.env.NODE_ENV = 'production';
+
+      const error = { response: { data: { detail: 'Sensitive error details' } }, message: 'Error' };
+      const sanitized = api._sanitizeErrorMessage(error, 422);
+
+      expect(sanitized).toBe('Invalid parameters');
+      expect(sanitized).not.toContain('Sensitive');
+
+      process.env.NODE_ENV = originalEnv;
+    });
+
+    it('should return detailed errors in development', () => {
+      const originalEnv = process.env.NODE_ENV;
+      process.env.NODE_ENV = 'development';
+
+      const error = { response: { data: { detail: 'Detailed error info' } }, message: 'Error' };
+      const message = api._sanitizeErrorMessage(error, 422);
+
+      expect(message).toContain('Detailed error info');
+
+      process.env.NODE_ENV = originalEnv;
+    });
+
+    it('should reject non-HTTPS base URLs', () => {
+      expect(() => {
+        new BflAPI({ apiKey: 'test_key', baseUrl: 'http://insecure.example.com', logLevel: 'ERROR' });
+      }).toThrow('must use HTTPS protocol');
+    });
+
+    it('should accept HTTPS base URLs', () => {
+      expect(() => {
+        new BflAPI({ apiKey: 'test_key', baseUrl: 'https://secure.example.com', logLevel: 'ERROR' });
+      }).not.toThrow();
+    });
+  });
+
   describe('API Calls (Optional - Requires API Key)', () => {
     it('should get user credits if API key is configured', async () => {
       try {

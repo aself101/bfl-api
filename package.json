@@ -1,6 +1,6 @@
 {
   "name": "bfl-api",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Black Forest Labs API wrapper - FLUX and Kontext image generation for Node.js with CLI",
   "main": "api.js",
   "type": "module",

@@ -54,6 +54,11 @@ export class BflAPI {
       ]
     });
 
+    // Validate baseUrl uses HTTPS
+    if (baseUrl && !baseUrl.startsWith('https://')) {
+      throw new Error('API base URL must use HTTPS protocol for security');
+    }
+
     // Set API key
     this.apiKey = apiKey || getBflApiKey();
     this.baseUrl = baseUrl;
@@ -76,6 +81,52 @@ export class BflAPI {
   }
 
   /**
+   * Redact API key for safe logging.
+   * Shows only the last 4 characters to prevent key exposure in logs.
+   *
+   * @param {string} apiKey - API key to redact
+   * @returns {string} Redacted API key (e.g., "xxx...abc1234")
+   * @private
+   */
+  _redactApiKey(apiKey) {
+    if (!apiKey || apiKey.length < 8) {
+      return '[REDACTED]';
+    }
+    return `xxx...${apiKey.slice(-4)}`;
+  }
+
+  /**
+   * Sanitize error messages for production environments.
+   * Returns generic messages in production to avoid information disclosure.
+   *
+   * @param {Error} error - Error object from axios
+   * @param {number} status - HTTP status code
+   * @returns {string} Sanitized error message
+   * @private
+   */
+  _sanitizeErrorMessage(error, status) {
+    // In production, return generic messages to avoid information disclosure
+    if (process.env.NODE_ENV === 'production') {
+      const genericMessages = {
+        400: 'Invalid request parameters',
+        401: 'Authentication failed',
+        403: 'Access forbidden',
+        404: 'Resource not found',
+        422: 'Invalid parameters',
+        429: 'Rate limit exceeded',
+        500: 'Service error',
+        502: 'Service temporarily unavailable',
+        503: 'Service temporarily unavailable'
+      };
+
+      return genericMessages[status] || 'An error occurred';
+    }
+
+    // In development, return detailed error messages
+    return error.response?.data?.detail || error.response?.data?.error || error.message;
+  }
+
+  /**
    * Make HTTP request to BFL API.
    *
    * @param {string} method - HTTP method (GET, POST)
@@ -93,40 +144,56 @@ export class BflAPI {
       'Content-Type': 'application/json'
     };
 
+    // Sanitized headers for logging (redact API key)
+    const sanitizedHeaders = {
+      ...headers,
+      'x-key': this._redactApiKey(this.apiKey)
+    };
+
+    this.logger.debug(`API request: ${method} ${endpoint}`, { headers: sanitizedHeaders });
+
     try {
       let response;
 
+      // Request configuration with timeout and security settings
+      const config = {
+        headers,
+        timeout: 30000,        // 30 second timeout
+        maxRedirects: 5,       // Limit redirects to prevent redirect loops
+      };
+
       if (method.toUpperCase() === 'GET') {
-        response = await axios.get(url, { headers });
+        response = await axios.get(url, config);
       } else if (method.toUpperCase() === 'POST') {
-        response = await axios.post(url, data, { headers });
+        response = await axios.post(url, data, config);
       } else {
         throw new Error(`Unsupported HTTP method: ${method}`);
       }
 
+      this.logger.debug(`API request successful: ${method} ${endpoint}`);
       return response.data;
 
     } catch (error) {
-      // Enhanced error handling
+      this.logger.error(`API request failed: ${error.message}`);
+
+      // Enhanced error handling with sanitization
       if (error.response) {
         const status = error.response.status;
-        const errorData = error.response.data;
+        const sanitizedMessage = this._sanitizeErrorMessage(error, status);
 
         if (status === 401) {
           throw new Error('Authentication failed. Please check your API key.');
         } else if (status === 422) {
-          const detail = errorData?.detail || 'Validation error';
-          throw new Error(`Invalid parameters: ${JSON.stringify(detail)}`);
+          throw new Error(`Invalid parameters: ${sanitizedMessage}`);
         } else if (status === 429) {
           throw new Error('Rate limit exceeded. Please wait before making more requests.');
         } else if (status === 502 || status === 503) {
           throw new Error(`Service temporarily unavailable (${status}). Please retry.`);
         } else {
-          throw new Error(`HTTP ${status}: ${errorData?.error || error.message}`);
+          throw new Error(`HTTP ${status}: ${sanitizedMessage}`);
         }
       }
 
-      this.logger.error(`Request failed for ${endpoint}: ${error.message}`);
       throw error;
     }
   }
