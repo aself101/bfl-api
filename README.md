@@ -1,6 +1,6 @@
 # Black Forest Labs Image Generation Service
 
-A Node.js wrapper for the [Black Forest Labs API](https://api.bfl.ml/) that provides easy access to FLUX and Kontext image generation models. Generate stunning AI images with professional quality through a simple command-line interface.
+A Node.js wrapper for the [Black Forest Labs API](https://docs.bfl.ml/quick_start/introduction) that provides easy access to FLUX and Kontext image generation models. Generate stunning AI images with professional quality through a simple command-line interface.
 
 This service follows the data-collection architecture pattern with organized data storage, automatic polling, retry logic, comprehensive logging, and CLI orchestration.
 
@@ -89,7 +89,7 @@ Maximum quality multi-reference image editing.
 
 ### 1. Get Your API Key
 
-1. Visit [https://docs.bfl.ai/quick_start/introduction/](https://docs.bfl.ai/quick_start/introduction)
+1. Visit [https://docs.bfl.ml/quick_start/introduction](https://docs.bfl.ml/quick_start/introduction)
 2. Create an account or sign in
 3. Generate your API key from the dashboard
 4. Copy your API key
@@ -697,7 +697,7 @@ Error: Authentication failed. Please check your API key.
 
 **Solution:**
 1. Verify your API key is correct in `.env`
-2. Check your account is active at https://api.bfl.ml/
+2. Check your account is active at https://docs.bfl.ml/quick_start/introduction
 3. Generate a new API key if needed
 
 ### Timeout
