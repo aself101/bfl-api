@@ -26,6 +26,7 @@ describe('BflAPI Class', () => {
         'generateFluxDev',
         'generateFluxPro',
         'generateFluxProUltra',
+        'generateFluxProFill',
         'generateKontextPro',
         'generateKontextMax',
         'getResult',
@@ -56,9 +57,9 @@ describe('BflAPI Class', () => {
       expect(BASE_URL.startsWith('https://')).toBe(true);
     });
 
-    it('should have all 5 model endpoints', () => {
+    it('should have all 6 model endpoints', () => {
       expect(MODEL_ENDPOINTS).toBeDefined();
-      expect(Object.keys(MODEL_ENDPOINTS)).toHaveLength(5);
+      expect(Object.keys(MODEL_ENDPOINTS)).toHaveLength(6);
     });
 
     it('should have valid endpoint paths', () => {
@@ -68,7 +69,7 @@ describe('BflAPI Class', () => {
     });
 
     it('should have expected models', () => {
-      const expectedModels = ['flux-dev', 'flux-pro', 'flux-ultra', 'kontext-pro', 'kontext-max'];
+      const expectedModels = ['flux-dev', 'flux-pro', 'flux-ultra', 'flux-pro-fill', 'kontext-pro', 'kontext-max'];
       expectedModels.forEach(model => {
         expect(MODEL_ENDPOINTS[model]).toBeDefined();
       });
@@ -134,6 +135,74 @@ describe('BflAPI Class', () => {
       expect(() => {
         new BflAPI({ apiKey: 'test_key', baseUrl: 'https://secure.example.com', logLevel: 'ERROR' });
       }).not.toThrow();
+    });
+  });
+
+  describe('FLUX.1 Fill [pro] Method', () => {
+    it('should throw error if image is missing', async () => {
+      await expect(async () => {
+        await api.generateFluxProFill({
+          prompt: 'A beautiful sunset'
+        });
+      }).rejects.toThrow('image is required for FLUX.1 Fill [pro]');
+    });
+
+    it('should throw error if prompt is missing', async () => {
+      await expect(async () => {
+        await api.generateFluxProFill({
+          image: 'base64_encoded_image'
+        });
+      }).rejects.toThrow('prompt is required for FLUX.1 Fill [pro]');
+    });
+
+    it('should accept valid parameters with image and prompt', async () => {
+      // This test will fail with authentication error since we use dummy key
+      // But it validates that the method builds the request correctly
+      try {
+        await api.generateFluxProFill({
+          image: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+          prompt: 'A beautiful sunset sky',
+          steps: 30,
+          guidance: 3
+        });
+      } catch (error) {
+        // Expected to fail with authentication error (dummy key)
+        expect(error.message).toMatch(/Authentication|Invalid API key|HTTP/);
+      }
+    });
+
+    it('should accept mask parameter', async () => {
+      try {
+        await api.generateFluxProFill({
+          image: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+          mask: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+          prompt: 'Fill this area with grass'
+        });
+      } catch (error) {
+        expect(error.message).toMatch(/Authentication|Invalid API key|HTTP/);
+      }
+    });
+
+    it('should accept all optional parameters', async () => {
+      try {
+        await api.generateFluxProFill({
+          image: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+          prompt: 'A sunset',
+          mask: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+          steps: 25,
+          guidance: 5.5,
+          seed: 12345,
+          safety_tolerance: 4,
+          output_format: 'png',
+          prompt_upsampling: true
+        });
+      } catch (error) {
+        expect(error.message).toMatch(/Authentication|Invalid API key|HTTP/);
+      }
+    });
+
+    it('should use flux-pro-fill endpoint', () => {
+      expect(MODEL_ENDPOINTS['flux-pro-fill']).toBe('/v1/flux-pro-1.0-fill');
     });
   });
 

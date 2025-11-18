@@ -123,7 +123,14 @@ export class BflAPI {
     }
 
     // In development, return detailed error messages
-    return error.response?.data?.detail || error.response?.data?.error || error.message;
+    const errorDetail = error.response?.data?.detail || error.response?.data?.error || error.message;
+
+    // If errorDetail is an object, stringify it
+    if (typeof errorDetail === 'object' && errorDetail !== null) {
+      return JSON.stringify(errorDetail);
+    }
+
+    return errorDetail;
   }
 
   /**
@@ -343,6 +350,66 @@ export class BflAPI {
       return result;
     } catch (error) {
       this.logger.error(`Error generating with FLUX 1.1 [pro] Ultra: ${error.message}`);
+      throw error;
+    }
+  }
+
+  // ==================== FLUX.1 Fill [pro] ====================
+
+  /**
+   * Generate image using FLUX.1 Fill [pro] model.
+   * Inpainting - modify specific areas of images using masks.
+   *
+   * @param {Object} params - Generation parameters
+   * @param {string} params.image - Input image as base64 or file path (required)
+   * @param {string} params.prompt - Text description of desired modifications (required)
+   * @param {string} params.mask - Binary mask as base64 or file path (optional, auto-generated if not provided)
+   * @param {number} params.steps - Number of inference steps (15-50, default: 30)
+   * @param {number} params.guidance - Guidance scale (1.5-100, default: 3)
+   * @param {number} params.seed - Random seed for reproducibility (optional)
+   * @param {number} params.safety_tolerance - Content moderation level (0-6, default: 2)
+   * @param {string} params.output_format - Output format: 'jpeg' or 'png' (default: 'jpeg')
+   * @param {boolean} params.prompt_upsampling - Enable AI prompt enhancement (default: false)
+   * @returns {Promise<Object>} Task object with id and polling_url
+   *
+   * @example
+   * const task = await api.generateFluxProFill({
+   *   image: 'path/to/image.jpg',
+   *   mask: 'path/to/mask.png',
+   *   prompt: 'A beautiful sunset sky',
+   *   steps: 30,
+   *   guidance: 3
+   * });
+   */
+  async generateFluxProFill(params) {
+    this._verifyApiKey();
+
+    if (!params.image) {
+      throw new Error('image is required for FLUX.1 Fill [pro]');
+    }
+
+    if (!params.prompt) {
+      throw new Error('prompt is required for FLUX.1 Fill [pro]');
+    }
+
+    const payload = {
+      image: params.image,
+      prompt: params.prompt,
+      ...(params.mask && { mask: params.mask }),
+      ...(params.steps !== undefined && { steps: params.steps }),
+      ...(params.guidance !== undefined && { guidance: params.guidance }),
+      ...(params.seed !== undefined && { seed: params.seed }),
+      ...(params.safety_tolerance !== undefined && { safety_tolerance: params.safety_tolerance }),
+      ...(params.output_format && { output_format: params.output_format }),
+      ...(params.prompt_upsampling !== undefined && { prompt_upsampling: params.prompt_upsampling })
+    };
+
+    try {
+      const result = await this._makeRequest('POST', MODEL_ENDPOINTS['flux-pro-fill'], payload);
+      this.logger.info(`FLUX.1 Fill [pro] generation submitted: ${result.id}`);
+      return result;
+    } catch (error) {
+      this.logger.error(`Error generating with FLUX.1 Fill [pro]: ${error.message}`);
       throw error;
     }
   }

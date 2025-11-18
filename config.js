@@ -44,6 +44,7 @@ export const MODEL_ENDPOINTS = {
   'flux-dev': '/v1/flux-dev',
   'flux-pro': '/v1/flux-pro-1.1',
   'flux-ultra': '/v1/flux-pro-1.1-ultra',
+  'flux-pro-fill': '/v1/flux-pro-1.0-fill',
   'kontext-pro': '/v1/flux-kontext-pro',
   'kontext-max': '/v1/flux-kontext-max'
 };
@@ -66,6 +67,13 @@ export const MODEL_CONSTRAINTS = {
     aspectRatios: ['21:9', '16:9', '4:3', '1:1', '3:4', '9:16', '9:21'],
     raw: [true, false],
     imagePromptStrength: { min: 0, max: 1 },
+    promptMaxLength: 10000
+  },
+  'flux-pro-fill': {
+    steps: { min: 15, max: 50 },
+    guidance: { min: 1.5, max: 100 },
+    safetyTolerance: { min: 0, max: 6 },
+    outputFormats: ['jpeg', 'png'],
     promptMaxLength: 10000
   },
   'kontext-pro': {
@@ -250,6 +258,23 @@ export function validateModelParams(model, params) {
     const { min, max } = constraints.imagePromptStrength;
     if (params.image_prompt_strength < min || params.image_prompt_strength > max) {
       errors.push(`image_prompt_strength must be between ${min} and ${max} for ${model}`);
+    }
+  }
+
+  // Validate safety_tolerance (flux-pro-fill)
+  if (params.safety_tolerance !== undefined && constraints.safetyTolerance) {
+    const { min, max } = constraints.safetyTolerance;
+    if (params.safety_tolerance < min || params.safety_tolerance > max) {
+      errors.push(`safety_tolerance must be between ${min} and ${max} for ${model}`);
+    }
+  }
+
+  // Validate output_format (flux-pro-fill)
+  if (params.output_format && constraints.outputFormats) {
+    if (!constraints.outputFormats.includes(params.output_format)) {
+      errors.push(
+        `Invalid output_format "${params.output_format}" for ${model}. Valid formats: ${constraints.outputFormats.join(', ')}`
+      );
     }
   }
 

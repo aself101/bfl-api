@@ -49,9 +49,9 @@ describe('Configuration Constants', () => {
   });
 
   describe('Model Endpoints', () => {
-    it('should have all 5 model endpoints', () => {
+    it('should have all 6 model endpoints', () => {
       expect(MODEL_ENDPOINTS).toBeDefined();
-      expect(Object.keys(MODEL_ENDPOINTS)).toHaveLength(5);
+      expect(Object.keys(MODEL_ENDPOINTS)).toHaveLength(6);
     });
 
     it('should have flux-dev endpoint', () => {
@@ -68,6 +68,10 @@ describe('Configuration Constants', () => {
 
     it('should have kontext-pro endpoint', () => {
       expect(MODEL_ENDPOINTS['kontext-pro']).toBe('/v1/flux-kontext-pro');
+    });
+
+    it('should have flux-pro-fill endpoint', () => {
+      expect(MODEL_ENDPOINTS['flux-pro-fill']).toBe('/v1/flux-pro-1.0-fill');
     });
 
     it('should have kontext-max endpoint', () => {
@@ -180,6 +184,85 @@ describe('Configuration Functions', () => {
         const invalidResult = validateModelParams('flux-ultra', { image_prompt_strength: 2 });
         expect(invalidResult.valid).toBe(false);
         expect(invalidResult.errors.some(e => e.includes('image_prompt_strength'))).toBe(true);
+      });
+    });
+
+    describe('flux-pro-fill validation', () => {
+      it('should accept valid flux-pro-fill parameters', () => {
+        const result = validateModelParams('flux-pro-fill', {
+          prompt: 'fill with grass',
+          steps: 30,
+          guidance: 5.5,
+          safety_tolerance: 3,
+          output_format: 'png'
+        });
+        expect(result.valid).toBe(true);
+        expect(result.errors).toHaveLength(0);
+      });
+
+      it('should reject steps below minimum (15)', () => {
+        const result = validateModelParams('flux-pro-fill', { steps: 10 });
+        expect(result.valid).toBe(false);
+        expect(result.errors.some(e => e.includes('Steps must be between 15 and 50'))).toBe(true);
+      });
+
+      it('should reject steps above maximum (50)', () => {
+        const result = validateModelParams('flux-pro-fill', { steps: 60 });
+        expect(result.valid).toBe(false);
+        expect(result.errors.some(e => e.includes('Steps must be between 15 and 50'))).toBe(true);
+      });
+
+      it('should accept steps within valid range', () => {
+        const result = validateModelParams('flux-pro-fill', { steps: 30 });
+        expect(result.valid).toBe(true);
+      });
+
+      it('should reject guidance below minimum (1.5)', () => {
+        const result = validateModelParams('flux-pro-fill', { guidance: 1.0 });
+        expect(result.valid).toBe(false);
+        expect(result.errors.some(e => e.includes('Guidance must be between 1.5 and 100'))).toBe(true);
+      });
+
+      it('should reject guidance above maximum (100)', () => {
+        const result = validateModelParams('flux-pro-fill', { guidance: 150 });
+        expect(result.valid).toBe(false);
+        expect(result.errors.some(e => e.includes('Guidance must be between 1.5 and 100'))).toBe(true);
+      });
+
+      it('should accept guidance within valid range', () => {
+        const result = validateModelParams('flux-pro-fill', { guidance: 50 });
+        expect(result.valid).toBe(true);
+      });
+
+      it('should reject safety_tolerance below minimum (0)', () => {
+        const result = validateModelParams('flux-pro-fill', { safety_tolerance: -1 });
+        expect(result.valid).toBe(false);
+        expect(result.errors.some(e => e.includes('safety_tolerance must be between 0 and 6'))).toBe(true);
+      });
+
+      it('should reject safety_tolerance above maximum (6)', () => {
+        const result = validateModelParams('flux-pro-fill', { safety_tolerance: 7 });
+        expect(result.valid).toBe(false);
+        expect(result.errors.some(e => e.includes('safety_tolerance must be between 0 and 6'))).toBe(true);
+      });
+
+      it('should accept safety_tolerance within valid range', () => {
+        const result = validateModelParams('flux-pro-fill', { safety_tolerance: 3 });
+        expect(result.valid).toBe(true);
+      });
+
+      it('should accept valid output formats', () => {
+        const jpegResult = validateModelParams('flux-pro-fill', { output_format: 'jpeg' });
+        expect(jpegResult.valid).toBe(true);
+
+        const pngResult = validateModelParams('flux-pro-fill', { output_format: 'png' });
+        expect(pngResult.valid).toBe(true);
+      });
+
+      it('should reject invalid output format', () => {
+        const result = validateModelParams('flux-pro-fill', { output_format: 'webp' });
+        expect(result.valid).toBe(false);
+        expect(result.errors.some(e => e.includes('Invalid output_format'))).toBe(true);
       });
     });
 

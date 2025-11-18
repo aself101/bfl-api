@@ -4,11 +4,12 @@
  * BFL Image Generation - Main CLI Script
  *
  * Command-line tool for generating images using Black Forest Labs API.
- * Supports batch processing with multiple prompts and all 5 BFL models.
+ * Supports batch processing with multiple prompts and all 6 BFL models.
  *
  * Usage:
  *   bfl --flux-dev --prompt "a cat" --width 1024 --height 768
  *   bfl --flux-ultra --prompt "landscape" --aspect-ratio "21:9" --raw
+ *   bfl --flux-fill --prompt "add grass" --image ./photo.jpg --mask ./mask.png
  *   bfl --kontext-pro --prompt "edit this" --input-image ./photo.jpg
  *
  * Or with npm:
@@ -18,6 +19,7 @@
  *   --flux-dev         FLUX.1 [dev] - Full control over steps and guidance
  *   --flux-pro         FLUX 1.1 [pro] - Professional quality with Redux
  *   --flux-ultra       FLUX 1.1 [pro] Ultra - Aspect ratios and raw mode
+ *   --flux-fill        FLUX.1 Fill [pro] - Inpainting with masks
  *   --kontext-pro      Kontext Pro - Multi-reference image editing
  *   --kontext-max      Kontext Max - Maximum quality editing
  */
@@ -89,31 +91,44 @@ ${'='.repeat(60)}
        --image-prompt-strength 0.5 \\
        --aspect-ratio "16:9"
 
-7. Kontext Pro - Image editing
+7. FLUX.1 Fill [pro] - Inpainting with mask
+   $ npm run bfl -- --flux-fill \\
+       --prompt "fill with lush green grass and flowers" \\
+       --image ./photo.jpg \\
+       --mask ./mask.png \\
+       --steps 30 --guidance 5
+
+8. FLUX.1 Fill [pro] - Auto-mask inpainting
+   $ npm run bfl -- --flux-fill \\
+       --prompt "replace the sky with sunset colors" \\
+       --image ./landscape.jpg \\
+       --steps 25
+
+9. Kontext Pro - Image editing
    $ npm run bfl -- --kontext-pro \\
        --prompt "make it look like winter, add snow" \\
        --input-image ./summer_photo.jpg
 
-8. Kontext Pro - Multi-reference editing
-   $ npm run bfl -- --kontext-pro \\
-       --prompt "combine the style from image 2 with subject from image 1" \\
-       --input-image ./subject.jpg \\
-       --input-image-2 ./style_reference.jpg
+10. Kontext Pro - Multi-reference editing
+    $ npm run bfl -- --kontext-pro \\
+        --prompt "combine the style from image 2 with subject from image 1" \\
+        --input-image ./subject.jpg \\
+        --input-image-2 ./style_reference.jpg
 
-9. Kontext Max - Premium quality editing
-   $ npm run bfl -- --kontext-max \\
-       --prompt "enhance colors, increase contrast, professional grade" \\
-       --input-image ./photo.jpg \\
-       --output-format png
+11. Kontext Max - Premium quality editing
+    $ npm run bfl -- --kontext-max \\
+        --prompt "enhance colors, increase contrast, professional grade" \\
+        --input-image ./photo.jpg \\
+        --output-format png
 
-10. Batch generation - Multiple prompts
+12. Batch generation - Multiple prompts
     $ npm run bfl -- --flux-dev \\
         --prompt "a red sports car" \\
         --prompt "a blue vintage car" \\
         --prompt "a green electric car" \\
         --seed 42 --width 1024 --height 768
 
-11. Batch with different seeds for variation
+13. Batch with different seeds for variation
     $ npm run bfl -- --flux-ultra \\
         --prompt "abstract art, vibrant colors" \\
         --prompt "abstract art, vibrant colors" \\
@@ -121,24 +136,24 @@ ${'='.repeat(60)}
         --aspect-ratio "1:1"
     # Each will generate differently without seed
 
-12. Custom output directory
+14. Custom output directory
     $ npm run bfl -- --flux-dev \\
         --prompt "logo design for tech startup" \\
         --output-dir ./my-generations \\
         --output-format png
 
-13. Dry run to preview parameters
+15. Dry run to preview parameters
     $ npm run bfl -- --flux-ultra \\
         --prompt "test prompt" \\
         --aspect-ratio "21:9" --raw \\
         --dry-run
 
-14. Check account credits
+16. Check account credits
     $ npm run bfl:credits
     # or
     $ npm run bfl -- --credits
 
-15. Poll existing task
+17. Poll existing task
     $ npm run bfl -- --get-result abc123def456
 
 AUTHENTICATION OPTIONS:
@@ -172,6 +187,7 @@ function getSelectedModel(options) {
   if (options.fluxDev) return 'flux-dev';
   if (options.fluxPro) return 'flux-pro';
   if (options.fluxUltra) return 'flux-ultra';
+  if (options.fluxFill) return 'flux-pro-fill';
   if (options.kontextPro) return 'kontext-pro';
   if (options.kontextMax) return 'kontext-max';
   return null;
@@ -216,6 +232,18 @@ function buildFluxUltraParams(params, options) {
 }
 
 /**
+ * Build parameters for FLUX.1 Fill [pro] model.
+ *
+ * @param {Object} params - Base parameters object
+ * @param {Object} options - Command options
+ */
+function buildFluxProFillParams(params, options) {
+  if (options.steps) params.steps = options.steps;
+  if (options.guidance !== undefined) params.guidance = options.guidance;
+  if (options.promptUpsampling !== undefined) params.prompt_upsampling = options.promptUpsampling;
+}
+
+/**
  * Add common parameters shared across all models.
  *
  * @param {Object} params - Parameters object to modify
@@ -238,6 +266,16 @@ async function addImageInputs(params, options) {
   if (options.imagePrompt) {
     logger.info('Converting image prompt to base64...');
     params.image_prompt = await imageToBase64(options.imagePrompt);
+  }
+
+  if (options.image) {
+    logger.info('Converting image to base64...');
+    params.image = await imageToBase64(options.image);
+  }
+
+  if (options.mask) {
+    logger.info('Converting mask to base64...');
+    params.mask = await imageToBase64(options.mask);
   }
 
   if (options.inputImage) {
@@ -298,6 +336,8 @@ async function generateImage(api, model, prompt, options, index, total) {
       buildFluxProParams(params, options);
     } else if (model === 'flux-ultra') {
       buildFluxUltraParams(params, options);
+    } else if (model === 'flux-pro-fill') {
+      buildFluxProFillParams(params, options);
     }
     // Note: Kontext models don't have additional parameters beyond common ones
 
@@ -319,6 +359,8 @@ async function generateImage(api, model, prompt, options, index, total) {
       task = await api.generateFluxPro(params);
     } else if (model === 'flux-ultra') {
       task = await api.generateFluxProUltra(params);
+    } else if (model === 'flux-pro-fill') {
+      task = await api.generateFluxProFill(params);
     } else if (model === 'kontext-pro') {
       task = await api.generateKontextPro(params);
     } else if (model === 'kontext-max') {
@@ -440,6 +482,25 @@ function validateParameters(model, options) {
     }
   }
 
+  // Validate FLUX.1 Fill [pro] specific parameters
+  if (model === 'flux-pro-fill') {
+    if (options.steps !== undefined) {
+      if (options.steps < 15 || options.steps > 50) {
+        errors.push('Steps must be between 15 and 50 for FLUX.1 Fill [pro]');
+      }
+    }
+
+    if (options.guidance !== undefined) {
+      if (options.guidance < 1.5 || options.guidance > 100) {
+        errors.push('Guidance must be between 1.5 and 100 for FLUX.1 Fill [pro]');
+      }
+    }
+
+    if (!options.image) {
+      errors.push('--image is required for FLUX.1 Fill [pro]');
+    }
+  }
+
   // Validate safety tolerance
   if (options.safetyTolerance !== undefined) {
     if (options.safetyTolerance < 0 || options.safetyTolerance > 6) {
@@ -491,6 +552,7 @@ async function main() {
     .option('--flux-dev', 'Use FLUX.1 [dev] model (full control over steps/guidance)')
     .option('--flux-pro', 'Use FLUX 1.1 [pro] model (professional quality with Redux)')
     .option('--flux-ultra', 'Use FLUX 1.1 [pro] Ultra model (aspect ratios and raw mode)')
+    .option('--flux-fill', 'Use FLUX.1 Fill [pro] model (inpainting with masks)')
     .option('--kontext-pro', 'Use Kontext Pro model (multi-reference editing)')
     .option('--kontext-max', 'Use Kontext Max model (maximum quality editing)');
 
@@ -518,6 +580,8 @@ async function main() {
   program
     .option('--image-prompt <path>', 'Input image for Redux/remix (file path or URL)')
     .option('--image-prompt-strength <number>', 'Remix strength for Ultra (0-1, default: 0.1)', parseFloat)
+    .option('--image <path>', 'Input image for Fill inpainting (file path or URL)')
+    .option('--mask <path>', 'Mask image for Fill inpainting (file path or URL, optional)')
     .option('--input-image <path>', 'Primary input image for Kontext (file path or URL)')
     .option('--input-image-2 <path>', 'Additional reference image for Kontext')
     .option('--input-image-3 <path>', 'Additional reference image for Kontext')
