@@ -11,6 +11,8 @@ This service follows the data-collection architecture pattern with organized dat
 **[📺 Watch 3-minute CLI demo](https://asciinema.org/a/755878)** - Batch processing, auto-retry, and organized output in action.
 
 ## Quick Start
+
+### CLI Usage
 ```bash
 # Install globally
 npm install -g bfl-api
@@ -19,6 +21,23 @@ export BFL_API_KEY="my-bfl-api-key"
 
 # Generate an image
 bfl --flux-dev --prompt "a serene mountain landscape"
+```
+
+### Programmatic Usage
+```javascript
+import { BflAPI } from 'bfl-api';
+
+const api = new BflAPI();
+
+// Generate and wait for image
+const task = await api.generateFluxDev({
+  prompt: 'a serene mountain landscape',
+  width: 1024,
+  height: 768
+});
+
+const result = await api.waitForResult(task.id);
+console.log('Image URL:', result.result.sample);
 ```
 
 ## Table of Contents
@@ -40,7 +59,7 @@ bfl --flux-dev --prompt "a serene mountain landscape"
 
 The Black Forest Labs API provides access to state-of-the-art image generation models. This Node.js service implements:
 
-- **5 Generation Models** - FLUX.1 [dev], FLUX 1.1 [pro], FLUX Ultra, Kontext Pro, Kontext Max
+- **6 Generation Models** - FLUX.1 [dev], FLUX 1.1 [pro], FLUX Ultra, FLUX.1 Fill [pro], Kontext Pro, Kontext Max
 - **Production Security** - API key redaction, error sanitization, HTTPS enforcement, comprehensive SSRF protection (including IPv4-mapped IPv6 bypass prevention)
 - **DoS Prevention** - Request timeouts (30s API, 60s downloads), file size limits (50MB), redirect limits
 - **Parameter Validation** - Pre-flight validation catches invalid parameters before API calls
@@ -51,7 +70,7 @@ The Black Forest Labs API provides access to state-of-the-art image generation m
 - **Image Input Support** - Convert local files or URLs to base64 with validation
 - **Organized Storage** - Structured directories with timestamped files and metadata
 - **CLI Orchestration** - Command-line tool for easy batch generation
-- **Comprehensive Testing** - 82 tests with Vitest for reliability
+- **Comprehensive Testing** - 101 tests with Vitest for reliability
 
 ## Models
 
@@ -72,6 +91,13 @@ Maximum quality with aspect ratio control and raw mode.
 
 **Best for:** Cinematic outputs, specific aspect ratios, natural/raw aesthetics
 **Parameters:** aspect_ratio (21:9 to 9:21), raw mode, image remixing
+
+### FLUX.1 Fill [pro]
+Professional inpainting with mask-based editing for precise modifications.
+
+**Best for:** Inpainting, object removal/replacement, selective editing with masks
+**Parameters:** image (required), mask (required OR image with alpha channel), steps (15-50), guidance (1.5-100)
+**Note:** Requires either a separate mask image OR a PNG with an alpha channel (transparency) defining the edit region.
 
 ### Kontext Pro
 Multi-reference image editing with context preservation.
@@ -277,6 +303,7 @@ Choose one model:
 --flux-dev         # FLUX.1 [dev] - Full control
 --flux-pro         # FLUX 1.1 [pro] - Professional quality
 --flux-ultra       # FLUX 1.1 [pro] Ultra - Maximum quality
+--flux-fill        # FLUX.1 Fill [pro] - Inpainting/mask editing
 --kontext-pro      # Kontext Pro - Image editing
 --kontext-max      # Kontext Max - Premium editing
 ```
@@ -323,6 +350,18 @@ Choose one model:
 --image-prompt <path>         # Input image for remixing (file or URL)
 --image-prompt-strength <0-1> # Remix strength (default: 0.1)
 ```
+
+### FLUX.1 Fill [pro] Specific
+
+```bash
+--image <path>                # Input image to edit (required, file or URL)
+--mask <path>                 # Mask image defining edit region (required for JPG/JPEG)
+--steps <number>              # 15-50 (default: 28)
+--guidance <number>           # 1.5-100 (default: 3)
+--prompt-upsampling           # Enable AI prompt enhancement
+```
+
+**Note:** Either `--mask` is required, OR `--image` must be a PNG with an alpha channel (transparency). JPG/JPEG images require an explicit `--mask` parameter.
 
 ### Kontext Models Specific
 
@@ -388,6 +427,24 @@ const task = await api.generateFluxProUltra({
   image_prompt_strength: 0.3
 });
 ```
+
+#### `generateFluxProFill(params)`
+
+Inpainting with FLUX.1 Fill [pro] using masks.
+
+```javascript
+const task = await api.generateFluxProFill({
+  prompt: 'replace with lush green grass',
+  image: 'base64_encoded_image',        // Required
+  mask: 'base64_encoded_mask',          // Required (or use PNG with alpha)
+  steps: 30,
+  guidance: 5,
+  safety_tolerance: 3,
+  output_format: 'png'
+});
+```
+
+**Note:** The `image` parameter is required. Either provide a `mask` parameter, or use a PNG image with an alpha channel (transparency) defining the edit region.
 
 #### `generateKontextPro(params)`
 
@@ -500,7 +557,27 @@ bfl --flux-pro \
   --height 1024
 ```
 
-### Example 6: Using API Class in Code
+### Example 6: Inpainting with FLUX.1 Fill [pro]
+
+```bash
+# Using explicit mask (works with any image format)
+bfl --flux-fill \
+  --prompt "fill with lush green grass and flowers" \
+  --image ./photos/landscape.jpg \
+  --mask ./photos/landscape_mask.png \
+  --steps 30 \
+  --guidance 5
+
+# Using PNG with alpha channel (no mask needed)
+bfl --flux-fill \
+  --prompt "remove object and fill background" \
+  --image ./photos/image_with_transparency.png \
+  --steps 28
+```
+
+**Note:** JPG/JPEG images require `--mask` parameter. PNG images can use alpha channel (transparency) as the mask.
+
+### Example 7: Using API Class in Code
 
 ```javascript
 // If installed via npm
@@ -545,6 +622,8 @@ datasets/
     ├── flux-pro/
     │   └── ...
     ├── flux-ultra/
+    │   └── ...
+    ├── flux-pro-fill/
     │   └── ...
     ├── kontext-pro/
     │   └── ...
@@ -629,10 +708,11 @@ This prevents attackers from using the service to access internal network resour
 - Catches invalid parameters early (saves API credits)
 - Validates:
   - Width/height (256-1440, divisible by 32)
-  - Steps (1-50 for FLUX.1 [dev])
-  - Guidance (1.5-5 for FLUX.1 [dev])
+  - Steps (1-50 for FLUX.1 [dev], 15-50 for FLUX.1 Fill [pro])
+  - Guidance (1.5-5 for FLUX.1 [dev], 1.5-100 for FLUX.1 Fill [pro])
   - Aspect ratios (valid ratios like "16:9", "21:9")
   - Prompt length (max 10,000 characters)
+  - Mask requirement (JPG/JPEG requires --mask parameter)
 
 ## Error Handling
 
@@ -769,6 +849,10 @@ BFL API rate limits vary by account tier. The service automatically:
 - [BFL Website](https://blackforestlabs.ai/)
 - [FLUX Models Overview](https://blackforestlabs.ai/flux-models/)
 - [API Status Page](https://status.bfl.ml/)
+
+---
+
+**Disclaimer:** This project is an independent community wrapper and is not affiliated with Black Forest Labs.
 
 ## License
 
