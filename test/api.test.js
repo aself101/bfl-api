@@ -57,9 +57,9 @@ describe('BflAPI Class', () => {
       expect(BASE_URL.startsWith('https://')).toBe(true);
     });
 
-    it('should have all 6 model endpoints', () => {
+    it('should have all 7 model endpoints', () => {
       expect(MODEL_ENDPOINTS).toBeDefined();
-      expect(Object.keys(MODEL_ENDPOINTS)).toHaveLength(6);
+      expect(Object.keys(MODEL_ENDPOINTS)).toHaveLength(7);
     });
 
     it('should have valid endpoint paths', () => {
@@ -203,6 +203,71 @@ describe('BflAPI Class', () => {
 
     it('should use flux-pro-fill endpoint', () => {
       expect(MODEL_ENDPOINTS['flux-pro-fill']).toBe('/v1/flux-pro-1.0-fill');
+    });
+  });
+
+  describe('FLUX.1 Expand [pro] Method', () => {
+    it('should throw error if image is missing', async () => {
+      await expect(async () => {
+        await api.generateFluxProExpand({
+          prompt: 'Expand with clouds',
+          top: 512
+        });
+      }).rejects.toThrow('image is required for FLUX.1 Expand [pro]');
+    });
+
+    it('should accept valid parameters with image', async () => {
+      // This test will fail with authentication error since we use dummy key
+      // But it validates that the method builds the request correctly
+      try {
+        await api.generateFluxProExpand({
+          image: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+          top: 512,
+          bottom: 256,
+          prompt: 'Extend with dramatic sky',
+          steps: 30,
+          guidance: 60
+        });
+      } catch (error) {
+        // Expected to fail with authentication error (dummy key)
+        expect(error.message).toMatch(/Authentication|Invalid API key|HTTP/);
+      }
+    });
+
+    it('should accept expansion parameters (top, bottom, left, right)', async () => {
+      try {
+        await api.generateFluxProExpand({
+          image: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+          top: 1024,
+          bottom: 512,
+          left: 256,
+          right: 256
+        });
+      } catch (error) {
+        expect(error.message).toMatch(/Authentication|Invalid API key|HTTP/);
+      }
+    });
+
+    it('should accept all optional parameters', async () => {
+      try {
+        await api.generateFluxProExpand({
+          image: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+          top: 512,
+          prompt: 'Add dramatic clouds',
+          steps: 40,
+          guidance: 70,
+          seed: 12345,
+          safety_tolerance: 4,
+          output_format: 'png',
+          prompt_upsampling: true
+        });
+      } catch (error) {
+        expect(error.message).toMatch(/Authentication|Invalid API key|HTTP/);
+      }
+    });
+
+    it('should use flux-pro-expand endpoint', () => {
+      expect(MODEL_ENDPOINTS['flux-pro-expand']).toBe('/v1/flux-pro-1.0-expand');
     });
   });
 

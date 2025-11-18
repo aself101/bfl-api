@@ -4,12 +4,13 @@
  * BFL Image Generation - Main CLI Script
  *
  * Command-line tool for generating images using Black Forest Labs API.
- * Supports batch processing with multiple prompts and all 6 BFL models.
+ * Supports batch processing with multiple prompts and all 7 BFL models.
  *
  * Usage:
  *   bfl --flux-dev --prompt "a cat" --width 1024 --height 768
  *   bfl --flux-ultra --prompt "landscape" --aspect-ratio "21:9" --raw
  *   bfl --flux-fill --prompt "add grass" --image ./photo.jpg --mask ./mask.png
+ *   bfl --flux-expand --prompt "extend sky" --image ./photo.jpg --top 512
  *   bfl --kontext-pro --prompt "edit this" --input-image ./photo.jpg
  *
  * Or with npm:
@@ -20,6 +21,7 @@
  *   --flux-pro         FLUX 1.1 [pro] - Professional quality with Redux
  *   --flux-ultra       FLUX 1.1 [pro] Ultra - Aspect ratios and raw mode
  *   --flux-fill        FLUX.1 Fill [pro] - Inpainting with masks
+ *   --flux-expand      FLUX.1 Expand [pro] - Expand/outpaint images
  *   --kontext-pro      Kontext Pro - Multi-reference image editing
  *   --kontext-max      Kontext Max - Maximum quality editing
  */
@@ -104,31 +106,45 @@ ${'='.repeat(60)}
        --image ./landscape.jpg \\
        --steps 25
 
-9. Kontext Pro - Image editing
-   $ npm run bfl -- --kontext-pro \\
-       --prompt "make it look like winter, add snow" \\
-       --input-image ./summer_photo.jpg
+9. FLUX.1 Expand [pro] - Extend image on all sides
+   $ npm run bfl -- --flux-expand \\
+       --prompt "extend with dramatic clouds and mountain vista" \\
+       --image ./photo.jpg \\
+       --top 512 --bottom 256 --left 256 --right 256 \\
+       --steps 30 --guidance 60
 
-10. Kontext Pro - Multi-reference editing
+10. FLUX.1 Expand [pro] - Vertical expansion
+    $ npm run bfl -- --flux-expand \\
+        --prompt "add sky with clouds above and ground below" \\
+        --image ./portrait.jpg \\
+        --top 1024 --bottom 512 \\
+        --steps 40
+
+11. Kontext Pro - Image editing
+    $ npm run bfl -- --kontext-pro \\
+        --prompt "make it look like winter, add snow" \\
+        --input-image ./summer_photo.jpg
+
+12. Kontext Pro - Multi-reference editing
     $ npm run bfl -- --kontext-pro \\
         --prompt "combine the style from image 2 with subject from image 1" \\
         --input-image ./subject.jpg \\
         --input-image-2 ./style_reference.jpg
 
-11. Kontext Max - Premium quality editing
+13. Kontext Max - Premium quality editing
     $ npm run bfl -- --kontext-max \\
         --prompt "enhance colors, increase contrast, professional grade" \\
         --input-image ./photo.jpg \\
         --output-format png
 
-12. Batch generation - Multiple prompts
+14. Batch generation - Multiple prompts
     $ npm run bfl -- --flux-dev \\
         --prompt "a red sports car" \\
         --prompt "a blue vintage car" \\
         --prompt "a green electric car" \\
         --seed 42 --width 1024 --height 768
 
-13. Batch with different seeds for variation
+15. Batch with different seeds for variation
     $ npm run bfl -- --flux-ultra \\
         --prompt "abstract art, vibrant colors" \\
         --prompt "abstract art, vibrant colors" \\
@@ -136,24 +152,24 @@ ${'='.repeat(60)}
         --aspect-ratio "1:1"
     # Each will generate differently without seed
 
-14. Custom output directory
+16. Custom output directory
     $ npm run bfl -- --flux-dev \\
         --prompt "logo design for tech startup" \\
         --output-dir ./my-generations \\
         --output-format png
 
-15. Dry run to preview parameters
+17. Dry run to preview parameters
     $ npm run bfl -- --flux-ultra \\
         --prompt "test prompt" \\
         --aspect-ratio "21:9" --raw \\
         --dry-run
 
-16. Check account credits
+18. Check account credits
     $ npm run bfl:credits
     # or
     $ npm run bfl -- --credits
 
-17. Poll existing task
+19. Poll existing task
     $ npm run bfl -- --get-result abc123def456
 
 AUTHENTICATION OPTIONS:
@@ -188,6 +204,7 @@ function getSelectedModel(options) {
   if (options.fluxPro) return 'flux-pro';
   if (options.fluxUltra) return 'flux-ultra';
   if (options.fluxFill) return 'flux-pro-fill';
+  if (options.fluxExpand) return 'flux-pro-expand';
   if (options.kontextPro) return 'kontext-pro';
   if (options.kontextMax) return 'kontext-max';
   return null;
@@ -238,6 +255,22 @@ function buildFluxUltraParams(params, options) {
  * @param {Object} options - Command options
  */
 function buildFluxProFillParams(params, options) {
+  if (options.steps) params.steps = options.steps;
+  if (options.guidance !== undefined) params.guidance = options.guidance;
+  if (options.promptUpsampling !== undefined) params.prompt_upsampling = options.promptUpsampling;
+}
+
+/**
+ * Build parameters for FLUX.1 Expand [pro] model.
+ *
+ * @param {Object} params - Base parameters object
+ * @param {Object} options - Command options
+ */
+function buildFluxProExpandParams(params, options) {
+  if (options.top !== undefined) params.top = options.top;
+  if (options.bottom !== undefined) params.bottom = options.bottom;
+  if (options.left !== undefined) params.left = options.left;
+  if (options.right !== undefined) params.right = options.right;
   if (options.steps) params.steps = options.steps;
   if (options.guidance !== undefined) params.guidance = options.guidance;
   if (options.promptUpsampling !== undefined) params.prompt_upsampling = options.promptUpsampling;
@@ -338,6 +371,8 @@ async function generateImage(api, model, prompt, options, index, total) {
       buildFluxUltraParams(params, options);
     } else if (model === 'flux-pro-fill') {
       buildFluxProFillParams(params, options);
+    } else if (model === 'flux-pro-expand') {
+      buildFluxProExpandParams(params, options);
     }
     // Note: Kontext models don't have additional parameters beyond common ones
 
@@ -361,6 +396,8 @@ async function generateImage(api, model, prompt, options, index, total) {
       task = await api.generateFluxProUltra(params);
     } else if (model === 'flux-pro-fill') {
       task = await api.generateFluxProFill(params);
+    } else if (model === 'flux-pro-expand') {
+      task = await api.generateFluxProExpand(params);
     } else if (model === 'kontext-pro') {
       task = await api.generateKontextPro(params);
     } else if (model === 'kontext-max') {
@@ -512,6 +549,39 @@ function validateParameters(model, options) {
     }
   }
 
+  // Validate FLUX.1 Expand [pro] specific parameters
+  if (model === 'flux-pro-expand') {
+    if (options.steps !== undefined) {
+      if (options.steps < 15 || options.steps > 50) {
+        errors.push('Steps must be between 15 and 50 for FLUX.1 Expand [pro]');
+      }
+    }
+
+    if (options.guidance !== undefined) {
+      if (options.guidance < 1.5 || options.guidance > 100) {
+        errors.push('Guidance must be between 1.5 and 100 for FLUX.1 Expand [pro]');
+      }
+    }
+
+    if (!options.image) {
+      errors.push('--image is required for FLUX.1 Expand [pro]');
+    }
+
+    // Validate expansion parameters
+    if (options.top !== undefined && (options.top < 0 || options.top > 2048)) {
+      errors.push('--top must be between 0 and 2048');
+    }
+    if (options.bottom !== undefined && (options.bottom < 0 || options.bottom > 2048)) {
+      errors.push('--bottom must be between 0 and 2048');
+    }
+    if (options.left !== undefined && (options.left < 0 || options.left > 2048)) {
+      errors.push('--left must be between 0 and 2048');
+    }
+    if (options.right !== undefined && (options.right < 0 || options.right > 2048)) {
+      errors.push('--right must be between 0 and 2048');
+    }
+  }
+
   // Validate safety tolerance
   if (options.safetyTolerance !== undefined) {
     if (options.safetyTolerance < 0 || options.safetyTolerance > 6) {
@@ -564,6 +634,7 @@ async function main() {
     .option('--flux-pro', 'Use FLUX 1.1 [pro] model (professional quality with Redux)')
     .option('--flux-ultra', 'Use FLUX 1.1 [pro] Ultra model (aspect ratios and raw mode)')
     .option('--flux-fill', 'Use FLUX.1 Fill [pro] model (inpainting with masks)')
+    .option('--flux-expand', 'Use FLUX.1 Expand [pro] model (expand/outpaint images)')
     .option('--kontext-pro', 'Use Kontext Pro model (multi-reference editing)')
     .option('--kontext-max', 'Use Kontext Max model (maximum quality editing)');
 
@@ -597,6 +668,13 @@ async function main() {
     .option('--input-image-2 <path>', 'Additional reference image for Kontext')
     .option('--input-image-3 <path>', 'Additional reference image for Kontext')
     .option('--input-image-4 <path>', 'Additional reference image for Kontext');
+
+  // FLUX.1 Expand [pro] specific
+  program
+    .option('--top <number>', 'Pixels to expand at top (0-2048, default: 0)', parseInt)
+    .option('--bottom <number>', 'Pixels to expand at bottom (0-2048, default: 0)', parseInt)
+    .option('--left <number>', 'Pixels to expand on left (0-2048, default: 0)', parseInt)
+    .option('--right <number>', 'Pixels to expand on right (0-2048, default: 0)', parseInt);
 
   // Utility options
   program

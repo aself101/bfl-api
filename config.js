@@ -45,6 +45,7 @@ export const MODEL_ENDPOINTS = {
   'flux-pro': '/v1/flux-pro-1.1',
   'flux-ultra': '/v1/flux-pro-1.1-ultra',
   'flux-pro-fill': '/v1/flux-pro-1.0-fill',
+  'flux-pro-expand': '/v1/flux-pro-1.0-expand',
   'kontext-pro': '/v1/flux-kontext-pro',
   'kontext-max': '/v1/flux-kontext-max'
 };
@@ -70,6 +71,17 @@ export const MODEL_CONSTRAINTS = {
     promptMaxLength: 10000
   },
   'flux-pro-fill': {
+    steps: { min: 15, max: 50 },
+    guidance: { min: 1.5, max: 100 },
+    safetyTolerance: { min: 0, max: 6 },
+    outputFormats: ['jpeg', 'png'],
+    promptMaxLength: 10000
+  },
+  'flux-pro-expand': {
+    top: { min: 0, max: 2048 },
+    bottom: { min: 0, max: 2048 },
+    left: { min: 0, max: 2048 },
+    right: { min: 0, max: 2048 },
     steps: { min: 15, max: 50 },
     guidance: { min: 1.5, max: 100 },
     safetyTolerance: { min: 0, max: 6 },
@@ -269,12 +281,41 @@ export function validateModelParams(model, params) {
     }
   }
 
-  // Validate output_format (flux-pro-fill)
+  // Validate output_format (flux-pro-fill, flux-pro-expand)
   if (params.output_format && constraints.outputFormats) {
     if (!constraints.outputFormats.includes(params.output_format)) {
       errors.push(
         `Invalid output_format "${params.output_format}" for ${model}. Valid formats: ${constraints.outputFormats.join(', ')}`
       );
+    }
+  }
+
+  // Validate expansion parameters (flux-pro-expand)
+  if (params.top !== undefined && constraints.top) {
+    const { min, max } = constraints.top;
+    if (params.top < min || params.top > max) {
+      errors.push(`top must be between ${min} and ${max} for ${model}`);
+    }
+  }
+
+  if (params.bottom !== undefined && constraints.bottom) {
+    const { min, max } = constraints.bottom;
+    if (params.bottom < min || params.bottom > max) {
+      errors.push(`bottom must be between ${min} and ${max} for ${model}`);
+    }
+  }
+
+  if (params.left !== undefined && constraints.left) {
+    const { min, max } = constraints.left;
+    if (params.left < min || params.left > max) {
+      errors.push(`left must be between ${min} and ${max} for ${model}`);
+    }
+  }
+
+  if (params.right !== undefined && constraints.right) {
+    const { min, max } = constraints.right;
+    if (params.right < min || params.right > max) {
+      errors.push(`right must be between ${min} and ${max} for ${model}`);
     }
   }
 

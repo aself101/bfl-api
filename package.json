@@ -29,6 +29,8 @@
     "bfl:dev": "node cli.js --flux-dev",
     "bfl:pro": "node cli.js --flux-pro",
     "bfl:ultra": "node cli.js --flux-ultra",
+    "bfl:fill": "node cli.js --flux-fill",
+    "bfl:expand": "node cli.js --flux-expand",
     "bfl:kontext-pro": "node cli.js --kontext-pro",
     "bfl:kontext-max": "node cli.js --kontext-max",
     "test": "vitest run",

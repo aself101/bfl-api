@@ -417,6 +417,67 @@ export class BflAPI {
     }
   }
 
+  /**
+   * Generate image using FLUX.1 Expand [pro] model.
+   * Expands images by adding pixels on any combination of sides while maintaining context.
+   *
+   * @param {Object} params - Generation parameters
+   * @param {string} params.image - Input image as base64 or file path (required)
+   * @param {number} params.top - Pixels to expand at top (0-2048, default: 0)
+   * @param {number} params.bottom - Pixels to expand at bottom (0-2048, default: 0)
+   * @param {number} params.left - Pixels to expand on left (0-2048, default: 0)
+   * @param {number} params.right - Pixels to expand on right (0-2048, default: 0)
+   * @param {string} params.prompt - Description of desired expansion (optional, default: '')
+   * @param {number} params.steps - Inference steps (15-50, default: 50)
+   * @param {number} params.guidance - Guidance scale (1.5-100, default: 60)
+   * @param {number} params.seed - Random seed for reproducibility (optional)
+   * @param {number} params.safety_tolerance - Content moderation level (0-6, default: 2)
+   * @param {string} params.output_format - Output format: 'jpeg' or 'png' (default: 'jpeg')
+   * @param {boolean} params.prompt_upsampling - Enable AI prompt enhancement (default: false)
+   * @returns {Promise<Object>} Task object with id and polling_url
+   *
+   * @example
+   * const task = await api.generateFluxProExpand({
+   *   image: 'path/to/image.jpg',
+   *   top: 512,
+   *   bottom: 256,
+   *   prompt: 'Extend the sky with dramatic clouds',
+   *   steps: 30,
+   *   guidance: 60
+   * });
+   */
+  async generateFluxProExpand(params) {
+    this._verifyApiKey();
+
+    if (!params.image) {
+      throw new Error('image is required for FLUX.1 Expand [pro]');
+    }
+
+    const payload = {
+      image: params.image,
+      ...(params.top !== undefined && { top: params.top }),
+      ...(params.bottom !== undefined && { bottom: params.bottom }),
+      ...(params.left !== undefined && { left: params.left }),
+      ...(params.right !== undefined && { right: params.right }),
+      ...(params.prompt && { prompt: params.prompt }),
+      ...(params.steps !== undefined && { steps: params.steps }),
+      ...(params.guidance !== undefined && { guidance: params.guidance }),
+      ...(params.seed !== undefined && { seed: params.seed }),
+      ...(params.safety_tolerance !== undefined && { safety_tolerance: params.safety_tolerance }),
+      ...(params.output_format && { output_format: params.output_format }),
+      ...(params.prompt_upsampling !== undefined && { prompt_upsampling: params.prompt_upsampling })
+    };
+
+    try {
+      const result = await this._makeRequest('POST', MODEL_ENDPOINTS['flux-pro-expand'], payload);
+      this.logger.info(`FLUX.1 Expand [pro] generation submitted: ${result.id}`);
+      return result;
+    } catch (error) {
+      this.logger.error(`Error generating with FLUX.1 Expand [pro]: ${error.message}`);
+      throw error;
+    }
+  }
+
   // ==================== Kontext Pro ====================
 
   /**

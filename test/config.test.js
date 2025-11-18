@@ -49,9 +49,9 @@ describe('Configuration Constants', () => {
   });
 
   describe('Model Endpoints', () => {
-    it('should have all 6 model endpoints', () => {
+    it('should have all 7 model endpoints', () => {
       expect(MODEL_ENDPOINTS).toBeDefined();
-      expect(Object.keys(MODEL_ENDPOINTS)).toHaveLength(6);
+      expect(Object.keys(MODEL_ENDPOINTS)).toHaveLength(7);
     });
 
     it('should have flux-dev endpoint', () => {
@@ -261,6 +261,140 @@ describe('Configuration Functions', () => {
 
       it('should reject invalid output format', () => {
         const result = validateModelParams('flux-pro-fill', { output_format: 'webp' });
+        expect(result.valid).toBe(false);
+        expect(result.errors.some(e => e.includes('Invalid output_format'))).toBe(true);
+      });
+    });
+
+    describe('flux-pro-expand validation', () => {
+      it('should accept valid flux-pro-expand parameters', () => {
+        const result = validateModelParams('flux-pro-expand', {
+          prompt: 'extend with clouds',
+          top: 512,
+          bottom: 256,
+          left: 128,
+          right: 128,
+          steps: 30,
+          guidance: 60,
+          safety_tolerance: 2,
+          output_format: 'png'
+        });
+        expect(result.valid).toBe(true);
+        expect(result.errors).toHaveLength(0);
+      });
+
+      it('should reject top below minimum (0)', () => {
+        const result = validateModelParams('flux-pro-expand', { top: -1 });
+        expect(result.valid).toBe(false);
+        expect(result.errors.some(e => e.includes('top must be between 0 and 2048'))).toBe(true);
+      });
+
+      it('should reject top above maximum (2048)', () => {
+        const result = validateModelParams('flux-pro-expand', { top: 3000 });
+        expect(result.valid).toBe(false);
+        expect(result.errors.some(e => e.includes('top must be between 0 and 2048'))).toBe(true);
+      });
+
+      it('should accept top within valid range', () => {
+        const result = validateModelParams('flux-pro-expand', { top: 1024 });
+        expect(result.valid).toBe(true);
+      });
+
+      it('should reject bottom below minimum (0)', () => {
+        const result = validateModelParams('flux-pro-expand', { bottom: -10 });
+        expect(result.valid).toBe(false);
+        expect(result.errors.some(e => e.includes('bottom must be between 0 and 2048'))).toBe(true);
+      });
+
+      it('should reject bottom above maximum (2048)', () => {
+        const result = validateModelParams('flux-pro-expand', { bottom: 2500 });
+        expect(result.valid).toBe(false);
+        expect(result.errors.some(e => e.includes('bottom must be between 0 and 2048'))).toBe(true);
+      });
+
+      it('should accept bottom within valid range', () => {
+        const result = validateModelParams('flux-pro-expand', { bottom: 512 });
+        expect(result.valid).toBe(true);
+      });
+
+      it('should reject left below minimum (0)', () => {
+        const result = validateModelParams('flux-pro-expand', { left: -5 });
+        expect(result.valid).toBe(false);
+        expect(result.errors.some(e => e.includes('left must be between 0 and 2048'))).toBe(true);
+      });
+
+      it('should reject left above maximum (2048)', () => {
+        const result = validateModelParams('flux-pro-expand', { left: 2100 });
+        expect(result.valid).toBe(false);
+        expect(result.errors.some(e => e.includes('left must be between 0 and 2048'))).toBe(true);
+      });
+
+      it('should accept left within valid range', () => {
+        const result = validateModelParams('flux-pro-expand', { left: 256 });
+        expect(result.valid).toBe(true);
+      });
+
+      it('should reject right below minimum (0)', () => {
+        const result = validateModelParams('flux-pro-expand', { right: -20 });
+        expect(result.valid).toBe(false);
+        expect(result.errors.some(e => e.includes('right must be between 0 and 2048'))).toBe(true);
+      });
+
+      it('should reject right above maximum (2048)', () => {
+        const result = validateModelParams('flux-pro-expand', { right: 2200 });
+        expect(result.valid).toBe(false);
+        expect(result.errors.some(e => e.includes('right must be between 0 and 2048'))).toBe(true);
+      });
+
+      it('should accept right within valid range', () => {
+        const result = validateModelParams('flux-pro-expand', { right: 128 });
+        expect(result.valid).toBe(true);
+      });
+
+      it('should reject steps below minimum (15)', () => {
+        const result = validateModelParams('flux-pro-expand', { steps: 10 });
+        expect(result.valid).toBe(false);
+        expect(result.errors.some(e => e.includes('Steps must be between 15 and 50'))).toBe(true);
+      });
+
+      it('should reject steps above maximum (50)', () => {
+        const result = validateModelParams('flux-pro-expand', { steps: 60 });
+        expect(result.valid).toBe(false);
+        expect(result.errors.some(e => e.includes('Steps must be between 15 and 50'))).toBe(true);
+      });
+
+      it('should accept steps within valid range', () => {
+        const result = validateModelParams('flux-pro-expand', { steps: 30 });
+        expect(result.valid).toBe(true);
+      });
+
+      it('should reject guidance below minimum (1.5)', () => {
+        const result = validateModelParams('flux-pro-expand', { guidance: 1.0 });
+        expect(result.valid).toBe(false);
+        expect(result.errors.some(e => e.includes('Guidance must be between 1.5 and 100'))).toBe(true);
+      });
+
+      it('should reject guidance above maximum (100)', () => {
+        const result = validateModelParams('flux-pro-expand', { guidance: 150 });
+        expect(result.valid).toBe(false);
+        expect(result.errors.some(e => e.includes('Guidance must be between 1.5 and 100'))).toBe(true);
+      });
+
+      it('should accept guidance within valid range', () => {
+        const result = validateModelParams('flux-pro-expand', { guidance: 60 });
+        expect(result.valid).toBe(true);
+      });
+
+      it('should accept valid output formats', () => {
+        const jpegResult = validateModelParams('flux-pro-expand', { output_format: 'jpeg' });
+        expect(jpegResult.valid).toBe(true);
+
+        const pngResult = validateModelParams('flux-pro-expand', { output_format: 'png' });
+        expect(pngResult.valid).toBe(true);
+      });
+
+      it('should reject invalid output format', () => {
+        const result = validateModelParams('flux-pro-expand', { output_format: 'webp' });
         expect(result.valid).toBe(false);
         expect(result.errors.some(e => e.includes('Invalid output_format'))).toBe(true);
       });
