@@ -626,7 +626,7 @@ async function main() {
   program
     .name('bfl')
     .description('Generate images using Black Forest Labs API')
-    .version('1.3.1');
+    .version('1.4.2');
 
   // Model selection (mutually exclusive)
   program
