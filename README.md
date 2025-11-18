@@ -64,7 +64,7 @@ console.log('Image URL:', result.result.sample);
 
 The Black Forest Labs API provides access to state-of-the-art image generation models. This Node.js service implements:
 
-- **6 Generation Models** - FLUX.1 [dev], FLUX 1.1 [pro], FLUX Ultra, FLUX.1 Fill [pro], Kontext Pro, Kontext Max
+- **7 Generation Models** - FLUX.1 [dev], FLUX 1.1 [pro], FLUX Ultra, FLUX.1 Fill [pro], FLUX.1 Expand [pro], Kontext Pro, Kontext Max
 - **Production Security** - API key redaction, error sanitization, HTTPS enforcement, comprehensive SSRF protection (including IPv4-mapped IPv6 bypass prevention)
 - **DoS Prevention** - Request timeouts (30s API, 60s downloads), file size limits (50MB), redirect limits
 - **Parameter Validation** - Pre-flight validation catches invalid parameters before API calls
@@ -970,7 +970,6 @@ BFL API rate limits vary by account tier. The service automatically:
 
 - [`stability-ai-api`](https://github.com/aself101/stability-ai-api) – Stable Diffusion 3.5 + upscalers
 - [`openai-image-api`](https://github.com/aself101/openai-image-api) – DALL·E & GPT Image 1
-- [`bfl-api`](https://github.com/aself101/bfl-api) – FLUX & Kontext
 
 ---
 
