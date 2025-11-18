@@ -122,6 +122,26 @@ Professional inpainting with mask-based editing for precise modifications.
 
 **Note:** Requires either a separate mask image OR a PNG with an alpha channel (transparency) defining the edit region.
 
+### FLUX.1 Expand [pro]
+Professional image expansion/outpainting that extends images beyond original boundaries.
+
+**Best for:** Image expansion, outpainting, adding context around images, extending canvases
+
+**Parameters:**
+- `image` - Input image to expand (required, base64 or URL)
+- `top` - Pixels to expand at top (0-2048, default: 0)
+- `bottom` - Pixels to expand at bottom (0-2048, default: 0)
+- `left` - Pixels to expand on left (0-2048, default: 0)
+- `right` - Pixels to expand on right (0-2048, default: 0)
+- `prompt` - Description of desired expansion (optional)
+- `steps` - Inference steps (15-50, default: 50)
+- `guidance` - Prompt adherence strength (1.5-100, default: 60)
+- `safety_tolerance` - Content moderation strictness (0-6)
+- `output_format` - Output format: 'jpeg' or 'png'
+- `prompt_upsampling` - AI-powered prompt enhancement (boolean)
+
+**Note:** Specify at least one expansion direction (top, bottom, left, or right) with a value greater than 0.
+
 ### Kontext Pro
 Multi-reference image editing with context preservation.
 
@@ -333,6 +353,7 @@ Choose one model:
 --flux-pro         # FLUX 1.1 [pro] - Professional quality
 --flux-ultra       # FLUX 1.1 [pro] Ultra - Maximum quality
 --flux-fill        # FLUX.1 Fill [pro] - Inpainting/mask editing
+--flux-expand      # FLUX.1 Expand [pro] - Image expansion/outpainting
 --kontext-pro      # Kontext Pro - Image editing
 --kontext-max      # Kontext Max - Premium editing
 ```
@@ -391,6 +412,21 @@ Choose one model:
 ```
 
 **Note:** Either `--mask` is required, OR `--image` must be a PNG with an alpha channel (transparency). JPG/JPEG images require an explicit `--mask` parameter.
+
+### FLUX.1 Expand [pro] Specific
+
+```bash
+--image <path>                # Input image to expand (required, file or URL)
+--top <pixels>                # Pixels to expand at top (0-2048, default: 0)
+--bottom <pixels>             # Pixels to expand at bottom (0-2048, default: 0)
+--left <pixels>               # Pixels to expand on left (0-2048, default: 0)
+--right <pixels>              # Pixels to expand on right (0-2048, default: 0)
+--steps <number>              # 15-50 (default: 50)
+--guidance <number>           # 1.5-100 (default: 60)
+--prompt-upsampling           # Enable AI prompt enhancement
+```
+
+**Note:** Specify at least one direction (top, bottom, left, or right) with a value greater than 0. Use `--prompt` to describe the content that should fill the expanded areas.
 
 ### Kontext Models Specific
 
@@ -474,6 +510,28 @@ const task = await api.generateFluxProFill({
 ```
 
 **Note:** The `image` parameter is required. Either provide a `mask` parameter, or use a PNG image with an alpha channel (transparency) defining the edit region.
+
+#### `generateFluxProExpand(params)`
+
+Expand/outpaint images with FLUX.1 Expand [pro].
+
+```javascript
+const task = await api.generateFluxProExpand({
+  prompt: 'extend with dramatic sky and clouds',
+  image: 'base64_encoded_image',        // Required
+  top: 512,                              // Pixels to expand at top (0-2048)
+  bottom: 256,                           // Pixels to expand at bottom (0-2048)
+  left: 256,                             // Pixels to expand on left (0-2048)
+  right: 256,                            // Pixels to expand on right (0-2048)
+  steps: 30,                             // 15-50 (default: 50)
+  guidance: 60,                          // 1.5-100 (default: 60)
+  safety_tolerance: 2,                   // 0-6 (default: 2)
+  output_format: 'png',                  // 'jpeg' or 'png'
+  prompt_upsampling: true                // Enable AI prompt enhancement
+});
+```
+
+**Note:** The `image` parameter is required. Specify at least one expansion direction (top, bottom, left, or right) with a value greater than 0.
 
 #### `generateKontextPro(params)`
 
@@ -606,7 +664,36 @@ bfl --flux-fill \
 
 **Note:** JPG/JPEG images require `--mask` parameter. PNG images can use alpha channel (transparency) as the mask.
 
-### Example 7: Using API Class in Code
+### Example 7: Image Expansion with FLUX.1 Expand [pro]
+
+```bash
+# Expand image on all sides
+bfl --flux-expand \
+  --prompt "extend with dramatic clouds and mountain vista" \
+  --image ./photos/landscape.jpg \
+  --top 512 --bottom 256 --left 256 --right 256 \
+  --steps 30 \
+  --guidance 60
+
+# Vertical expansion only (portrait extension)
+bfl --flux-expand \
+  --prompt "add sky with clouds above and ground below" \
+  --image ./photos/portrait.jpg \
+  --top 1024 --bottom 512 \
+  --steps 40
+
+# Horizontal expansion with PNG output
+bfl --flux-expand \
+  --prompt "expand cityscape to the sides" \
+  --image ./photos/city.jpg \
+  --left 640 --right 640 \
+  --output-format png \
+  --prompt-upsampling
+```
+
+**Note:** Specify at least one direction (top, bottom, left, right) to expand. Use `--prompt` to guide what content should fill the expanded areas.
+
+### Example 8: Using API Class in Code
 
 ```javascript
 // If installed via npm
