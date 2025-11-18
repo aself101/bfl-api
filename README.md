@@ -1,11 +1,16 @@
 # Black Forest Labs Image Generation Service
 
+[![npm version](https://img.shields.io/npm/v/bfl-api.svg)](https://www.npmjs.com/package/bfl-api)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Node.js Version](https://img.shields.io/node/v/bfl-api)](https://nodejs.org)
+[![Tests](https://img.shields.io/badge/tests-101%20passing-brightgreen)](test/)
+
 A Node.js wrapper for the [Black Forest Labs API](https://docs.bfl.ml/quick_start/introduction) that provides easy access to FLUX and Kontext image generation models. Generate stunning AI images with professional quality through a simple command-line interface.
 
 This service follows the data-collection architecture pattern with organized data storage, automatic polling, retry logic, comprehensive logging, and CLI orchestration.
 
 ## Quick Demo
-[![npm version](https://img.shields.io/npm/v/bfl-api.svg)](https://www.npmjs.com/package/bfl-api)
+
 [![asciicast](https://asciinema.org/a/755878.svg)](https://asciinema.org/a/755878)
 
 **[📺 Watch 3-minute CLI demo](https://asciinema.org/a/755878)** - Batch processing, auto-retry, and organized output in action.
@@ -78,38 +83,62 @@ The Black Forest Labs API provides access to state-of-the-art image generation m
 Full control text-to-image generation with adjustable steps and guidance.
 
 **Best for:** Experimentation, fine-tuning parameters, development
-**Parameters:** width, height, steps (1-50), guidance (1.5-5)
+
+**Parameters:**
+- `width`, `height` - Image dimensions (256-1440, divisible by 32)
+- `steps` - Inference steps (1-50)
+- `guidance` - Prompt adherence strength (1.5-5)
 
 ### FLUX 1.1 [pro]
 Professional quality generation with Redux image prompting.
 
 **Best for:** Production use, high-quality images, image-to-image with Redux
-**Parameters:** width, height, image_prompt (optional)
+
+**Parameters:**
+- `width`, `height` - Image dimensions (256-1440, divisible by 32)
+- `image_prompt` - Optional Redux image guidance (base64 or URL)
 
 ### FLUX 1.1 [pro] Ultra
 Maximum quality with aspect ratio control and raw mode.
 
 **Best for:** Cinematic outputs, specific aspect ratios, natural/raw aesthetics
-**Parameters:** aspect_ratio (21:9 to 9:21), raw mode, image remixing
+
+**Parameters:**
+- `aspect_ratio` - Image proportions (21:9, 16:9, 4:3, 1:1, 3:4, 9:16, 9:21)
+- `raw` - Enable raw/natural aesthetic mode (boolean)
+- `image_prompt` - Optional image remixing (base64 or URL)
 
 ### FLUX.1 Fill [pro]
 Professional inpainting with mask-based editing for precise modifications.
 
 **Best for:** Inpainting, object removal/replacement, selective editing with masks
-**Parameters:** image (required), mask (required OR image with alpha channel), steps (15-50), guidance (1.5-100)
+
+**Parameters:**
+- `image` - Input image to edit (required, base64 or URL)
+- `mask` - Mask defining edit region (required for JPG/JPEG, base64 or URL)
+- `steps` - Inference steps (15-50)
+- `guidance` - Prompt adherence strength (1.5-100)
+- `safety_tolerance` - Content moderation strictness (0-6)
+
 **Note:** Requires either a separate mask image OR a PNG with an alpha channel (transparency) defining the edit region.
 
 ### Kontext Pro
 Multi-reference image editing with context preservation.
 
 **Best for:** Image editing, multi-reference composition, context-aware modifications
-**Parameters:** input_image (required), up to 3 additional reference images
+
+**Parameters:**
+- `input_image` - Base image to edit (required, base64 or URL)
+- `reference_image_1`, `reference_image_2`, `reference_image_3` - Optional context images (base64 or URL)
 
 ### Kontext Max
 Maximum quality multi-reference image editing.
 
 **Best for:** High-end image editing, professional retouching
-**Parameters:** input_image (required), up to 3 additional reference images
+
+**Parameters:**
+- `input_image` - Base image to edit (required, base64 or URL)
+- `reference_image_1`, `reference_image_2`, `reference_image_3` - Optional context images (base64 or URL)
 
 ## Authentication Setup
 
@@ -849,6 +878,12 @@ BFL API rate limits vary by account tier. The service automatically:
 - [BFL Website](https://blackforestlabs.ai/)
 - [FLUX Models Overview](https://blackforestlabs.ai/flux-models/)
 - [API Status Page](https://status.bfl.ml/)
+
+## Related Packages
+
+- [`stability-ai-api`](https://github.com/aself101/stability-ai-api) – Stable Diffusion 3.5 + upscalers
+- [`openai-image-api`](https://github.com/aself101/openai-image-api) – DALL·E & GPT Image 1
+- [`bfl-api`](https://github.com/aself101/bfl-api) – FLUX & Kontext
 
 ---
 
