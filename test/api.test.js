@@ -11,8 +11,8 @@ describe('BflAPI Class', () => {
   let api;
 
   beforeAll(() => {
-    // Initialize API with dummy key for testing and ERROR log level to reduce noise
-    api = new BflAPI({ apiKey: 'test_api_key_for_unit_tests', logLevel: 'ERROR' });
+    // Initialize API with dummy key for testing and NONE log level to suppress all logs
+    api = new BflAPI({ apiKey: 'test_api_key_for_unit_tests', logLevel: 'NONE' });
   });
 
   describe('Initialization', () => {

@@ -35,14 +35,15 @@ export class BflAPI {
    * @param {Object} options - Configuration options
    * @param {string} options.apiKey - BFL API key. If null, reads from environment variable.
    * @param {string} options.baseUrl - API base URL (default: https://api.bfl.ai)
-   * @param {string} options.logLevel - Logging level (DEBUG, INFO, WARNING, ERROR)
+   * @param {string} options.logLevel - Logging level (DEBUG, INFO, WARNING, ERROR, NONE)
    *
    * @throws {Error} If API key is not provided and not in environment
    */
   constructor({ apiKey = null, baseUrl = BASE_URL, logLevel = 'INFO' } = {}) {
-    // Setup logging
+    // Setup logging (support NONE to silence all logs during tests)
+    const isSilent = logLevel.toUpperCase() === 'NONE';
     this.logger = winston.createLogger({
-      level: logLevel.toLowerCase(),
+      level: isSilent ? 'error' : logLevel.toLowerCase(),
       format: winston.format.combine(
         winston.format.timestamp(),
         winston.format.printf(({ timestamp, level, message }) => {
@@ -50,7 +51,9 @@ export class BflAPI {
         })
       ),
       transports: [
-        new winston.transports.Console()
+        new winston.transports.Console({
+          silent: isSilent
+        })
       ]
     });
 
