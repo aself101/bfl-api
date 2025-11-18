@@ -499,6 +499,17 @@ function validateParameters(model, options) {
     if (!options.image) {
       errors.push('--image is required for FLUX.1 Fill [pro]');
     }
+
+    // Validate mask requirement
+    if (options.image && !options.mask) {
+      const imageExt = path.extname(options.image).toLowerCase();
+      if (imageExt === '.jpg' || imageExt === '.jpeg') {
+        errors.push('FLUX.1 Fill [pro] requires --mask parameter when using JPG/JPEG images (they do not support alpha channels). Either provide --mask or use a PNG image with an alpha channel.');
+      } else if (imageExt === '.png') {
+        // PNG can have alpha channel, but warn user
+        logger.warn('⚠ Using PNG without --mask parameter. The PNG must contain an alpha channel (transparency) to define the mask area, otherwise the API will reject it.');
+      }
+    }
   }
 
   // Validate safety tolerance
