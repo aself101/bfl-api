@@ -4,6 +4,7 @@ export default defineConfig({
   test: {
     // Test environment
     environment: 'node',
+    pool: 'threads',
 
     // Coverage configuration
     coverage: {
