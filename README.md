@@ -797,9 +797,10 @@ When processing image URLs (for `--image-prompt` or `--input-image`), the servic
 - **Link-Local Addresses**: `169.254.x.x` (AWS/Azure metadata endpoints)
 - **Cloud Metadata**: `metadata.google.internal`, `169.254.169.254`
 - **IPv4-Mapped IPv6 Bypass Prevention**: Detects and blocks `[::ffff:127.0.0.1]`, `[::ffff:10.0.0.1]`, etc.
+- **DNS Rebinding Prevention**: Performs DNS resolution to block domains that resolve to internal/private IPs (prevents TOCTOU attacks via wildcard DNS services like nip.io)
 - **HTTP URLs**: Only HTTPS URLs are accepted
 
-This prevents attackers from using the service to access internal network resources, including sophisticated bypass attempts using IPv4-mapped IPv6 addresses.
+This prevents attackers from using the service to access internal network resources, including sophisticated bypass attempts using IPv4-mapped IPv6 addresses and DNS rebinding attacks.
 
 ### Image File Validation
 - **Magic Byte Checking**: Validates PNG, JPEG, WebP, and GIF formats by actual file headers (not just extensions)
