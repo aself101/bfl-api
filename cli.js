@@ -622,6 +622,12 @@ async function main() {
     process.exit(0);
   }
 
+  // Show help if no arguments
+  if (!process.argv.slice(2).length) {
+    program.outputHelp();
+    process.exit(0);
+  }
+
   // Handle credits check
   if (options.credits) {
     try {
@@ -656,14 +662,14 @@ async function main() {
   // Validate model selection
   const model = getSelectedModel(options);
   if (!model) {
-    logger.error('Error: Please specify a model (--flux-dev, --flux-pro, --flux-ultra, --kontext-pro, or --kontext-max)');
-    program.help();
+    program.outputHelp();
+    process.exit(1);
   }
 
   // Validate prompts
   if (!options.prompt || options.prompt.length === 0) {
-    logger.error('Error: At least one --prompt is required');
-    program.help();
+    program.outputHelp();
+    process.exit(1);
   }
 
   // Validate Kontext models require input image

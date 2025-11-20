@@ -11,6 +11,8 @@ import path from 'path';
 import { promisify } from 'util';
 import winston from 'winston';
 import axios from 'axios';
+import { lookup } from 'dns/promises';
+import { isIPv4, isIPv6 } from 'net';
 
 // Configure module logger
 const logger = winston.createLogger({
@@ -27,14 +29,56 @@ const logger = winston.createLogger({
 });
 
 /**
+ * Check if an IP address is in a blocked range (private, loopback, or cloud metadata).
+ *
+ * @param {string} ip - IP address to check
+ * @returns {boolean} True if IP is blocked
+ */
+function isBlockedIP(ip) {
+  const cleanIP = ip.replace(/^\[|\]$/g, ''); // Remove IPv6 brackets
+
+  // Block localhost variations
+  if (cleanIP === 'localhost' || cleanIP === '127.0.0.1' || cleanIP === '::1') {
+    return true;
+  }
+
+  // Block cloud metadata endpoints
+  const blockedHosts = [
+    'metadata.google.internal',
+    'metadata',
+    '169.254.169.254',
+  ];
+  if (blockedHosts.includes(cleanIP)) {
+    return true;
+  }
+
+  // Block private IP ranges and special addresses
+  const blockedPatterns = [
+    /^127\./,                    // Loopback
+    /^10\./,                     // Private Class A
+    /^172\.(1[6-9]|2[0-9]|3[0-1])\./, // Private Class B
+    /^192\.168\./,               // Private Class C
+    /^169\.254\./,               // Link-local (AWS metadata)
+    /^0\./,                      // Invalid range
+    /^::1$/,                     // IPv6 loopback
+    /^fe80:/,                    // IPv6 link-local
+    /^fc00:/,                    // IPv6 unique local
+    /^fd00:/,                    // IPv6 unique local
+  ];
+
+  return blockedPatterns.some(pattern => pattern.test(cleanIP));
+}
+
+/**
  * Validate image URL for security.
- * Enforces HTTPS and blocks private IPs, localhost, and cloud metadata endpoints.
+ * Enforces HTTPS, blocks private IPs, localhost, and cloud metadata endpoints.
+ * Performs DNS resolution to prevent DNS rebinding attacks.
  *
  * @param {string} url - URL to validate
- * @returns {string} Validated URL
+ * @returns {Promise<string>} Validated URL
  * @throws {Error} If URL is invalid or insecure
  */
-export function validateImageUrl(url) {
+export async function validateImageUrl(url) {
   // First check for IPv4-mapped IPv6 in the original URL string (before URL parsing normalizes it)
   // This prevents SSRF bypass via https://[::ffff:127.0.0.1] or https://[::ffff:169.254.169.254]
   const ipv6MappedMatch = url.match(/\[::ffff:(\d+\.\d+\.\d+\.\d+)\]/i);
@@ -77,47 +121,49 @@ export function validateImageUrl(url) {
   }
 
   const hostname = parsed.hostname.toLowerCase();
-
-  // Block localhost variations (including IPv6 bracket notation)
   const cleanHostname = hostname.replace(/^\[|\]$/g, ''); // Remove IPv6 brackets
 
-  // Check against the actual IP
-  const hostnameToCheck = cleanHostname;
-
-  if (hostnameToCheck === 'localhost' || hostnameToCheck === '127.0.0.1' || hostnameToCheck === '::1') {
-    logger.warn(`SECURITY: Blocked access to localhost: ${hostname}`);
-    throw new Error('Access to localhost is not allowed');
-  }
-
-  // Block private IP ranges and special addresses
-  const blockedPatterns = [
-    /^127\./,                    // Loopback
-    /^10\./,                     // Private Class A
-    /^172\.(1[6-9]|2[0-9]|3[0-1])\./, // Private Class B
-    /^192\.168\./,               // Private Class C
-    /^169\.254\./,               // Link-local (AWS metadata)
-    /^0\./,                      // Invalid range
-    /^::1$/,                     // IPv6 loopback
-    /^fe80:/,                    // IPv6 link-local
-    /^fc00:/,                    // IPv6 unique local
-    /^fd00:/,                    // IPv6 unique local
-  ];
-
-  // Block cloud metadata endpoints
-  const blockedHosts = [
-    'metadata.google.internal',  // GCP metadata
-    'metadata',                  // Generic metadata
-    '169.254.169.254',          // AWS/Azure metadata IP
-  ];
-
-  if (blockedHosts.includes(hostnameToCheck)) {
-    logger.warn(`SECURITY: Blocked access to cloud metadata endpoint: ${hostname}`);
+  // First check if hostname itself is blocked (before DNS resolution)
+  // This catches 'localhost', 'metadata.google.internal', 'metadata', etc.
+  const blockedHosts = ['localhost', 'metadata.google.internal', 'metadata'];
+  if (blockedHosts.includes(cleanHostname)) {
+    logger.warn(`SECURITY: Blocked access to prohibited hostname: ${hostname}`);
     throw new Error('Access to cloud metadata endpoints is not allowed');
   }
 
-  if (blockedPatterns.some(pattern => pattern.test(hostnameToCheck))) {
-    logger.warn(`SECURITY: Blocked access to private IP address: ${hostname}`);
-    throw new Error('Access to internal/private IP addresses is not allowed');
+  // Check if hostname is already an IP address (not a domain name)
+  if (isIPv4(cleanHostname) || isIPv6(cleanHostname)) {
+    // Direct IP address - validate it using our blocklist
+    if (isBlockedIP(cleanHostname)) {
+      logger.warn(`SECURITY: Blocked access to private/internal IP: ${hostname}`);
+      throw new Error('Access to internal/private IP addresses is not allowed');
+    }
+  } else {
+    // Hostname is a domain name - perform DNS resolution to prevent DNS rebinding
+    try {
+      logger.debug(`Resolving DNS for hostname: ${hostname}`);
+      const { address } = await lookup(hostname);
+      logger.debug(`DNS resolved ${hostname} → ${address}`);
+
+      // Validate the resolved IP address
+      if (isBlockedIP(address)) {
+        logger.warn(`SECURITY: DNS resolution of ${hostname} points to blocked IP: ${address}`);
+        throw new Error(`Domain ${hostname} resolves to internal/private IP address`);
+      }
+
+      logger.debug(`DNS validation passed for ${hostname} (resolved to ${address})`);
+    } catch (error) {
+      if (error.code === 'ENOTFOUND') {
+        logger.warn(`SECURITY: Domain ${hostname} could not be resolved`);
+        throw new Error(`Domain ${hostname} could not be resolved`);
+      } else if (error.message && error.message.includes('resolves to internal')) {
+        // Re-throw our validation errors
+        throw error;
+      } else {
+        logger.warn(`SECURITY: DNS lookup failed for ${hostname}: ${error.message}`);
+        throw new Error(`Failed to validate domain ${hostname}: ${error.message}`);
+      }
+    }
   }
 
   return url;
@@ -389,7 +435,7 @@ export async function imageToBase64(input) {
   // Check if input is a URL
   if (input.startsWith('http://') || input.startsWith('https://')) {
     // Validate URL for security (SSRF protection)
-    validateImageUrl(input);
+    await validateImageUrl(input);
     return await urlToBase64(input);
   } else {
     // Validate file path (existence and format)
@@ -407,6 +453,9 @@ export async function imageToBase64(input) {
  */
 export async function downloadImage(url, filepath) {
   try {
+    // Validate URL for security (SSRF protection)
+    await validateImageUrl(url);
+
     const dir = path.dirname(filepath);
     await ensureDirectory(dir);
 
