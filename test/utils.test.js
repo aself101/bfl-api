@@ -12,9 +12,28 @@ vi.mock('dns/promises', () => ({
   lookup: vi.fn()
 }));
 
-import { promptToFilename, generateTimestampedFilename, validateImageUrl, validateImagePath, validateImageFile } from '../utils.js';
+import {
+  promptToFilename,
+  generateTimestampedFilename,
+  validateImageUrl,
+  validateImagePath,
+  validateImageFile,
+  ensureDirectory,
+  writeToFile,
+  readFromFile,
+  fileToBase64,
+  urlToBase64,
+  imageToBase64,
+  downloadImage,
+  pause,
+  randomNumber
+} from '../utils.js';
 import { validateApiKeyFormat } from '../config.js';
 import { lookup } from 'dns/promises';
+import axios from 'axios';
+
+// Mock axios for URL tests
+vi.mock('axios');
 
 describe('Utility Functions', () => {
   describe('promptToFilename', () => {
@@ -323,6 +342,399 @@ describe('Image Validation (Security)', () => {
       const result = await validateImageFile('/nonexistent/file.jpg');
       expect(result.valid).toBe(false);
       expect(result.errors.some(e => e.includes('not found'))).toBe(true);
+    });
+  });
+});
+
+describe('File I/O Operations', () => {
+  const testDir = join(process.cwd(), 'test-temp-io');
+
+  beforeAll(() => {
+    try { mkdirSync(testDir, { recursive: true }); } catch (e) {}
+  });
+
+  afterAll(() => {
+    try {
+      // Clean up test files
+      const { readdirSync } = require('fs');
+      const files = readdirSync(testDir);
+      files.forEach(file => unlinkSync(join(testDir, file)));
+      rmdirSync(testDir);
+    } catch (e) {}
+  });
+
+  describe('ensureDirectory', () => {
+    it('should create directory if it does not exist', async () => {
+      const newDir = join(testDir, 'new-directory');
+      await ensureDirectory(newDir);
+
+      const { existsSync } = require('fs');
+      expect(existsSync(newDir)).toBe(true);
+
+      // Cleanup
+      rmdirSync(newDir);
+    });
+
+    it('should not throw if directory already exists', async () => {
+      await expect(ensureDirectory(testDir)).resolves.not.toThrow();
+    });
+
+    it('should create nested directories', async () => {
+      const nestedDir = join(testDir, 'level1', 'level2', 'level3');
+      await ensureDirectory(nestedDir);
+
+      const { existsSync } = require('fs');
+      expect(existsSync(nestedDir)).toBe(true);
+
+      // Cleanup
+      rmdirSync(join(testDir, 'level1', 'level2', 'level3'));
+      rmdirSync(join(testDir, 'level1', 'level2'));
+      rmdirSync(join(testDir, 'level1'));
+    });
+  });
+
+  describe('writeToFile and readFromFile', () => {
+    it('should write and read JSON files', async () => {
+      const filepath = join(testDir, 'test.json');
+      const data = { key: 'value', number: 42, nested: { prop: 'test' } };
+
+      await writeToFile(data, filepath, 'json');
+      const result = await readFromFile(filepath, 'json');
+
+      expect(result).toEqual(data);
+      unlinkSync(filepath);
+    });
+
+    it('should write and read text files', async () => {
+      const filepath = join(testDir, 'test.txt');
+      const data = 'Hello, World!\nThis is a test.';
+
+      await writeToFile(data, filepath, 'text');
+      const result = await readFromFile(filepath, 'text');
+
+      expect(result).toBe(data);
+      unlinkSync(filepath);
+    });
+
+    it('should write and read binary files', async () => {
+      const filepath = join(testDir, 'test.bin');
+      const data = Buffer.from([0x89, 0x50, 0x4E, 0x47]);
+
+      await writeToFile(data, filepath, 'binary');
+      const result = await readFromFile(filepath, 'binary');
+
+      expect(result).toEqual(data);
+      unlinkSync(filepath);
+    });
+
+    it('should auto-detect JSON format', async () => {
+      const filepath = join(testDir, 'auto.json');
+      const data = { test: 'auto-detect' };
+
+      await writeToFile(data, filepath); // No format specified
+      const result = await readFromFile(filepath); // No format specified
+
+      expect(result).toEqual(data);
+      unlinkSync(filepath);
+    });
+
+    it('should auto-detect text format', async () => {
+      const filepath = join(testDir, 'auto.txt');
+      const data = 'Auto-detect text';
+
+      await writeToFile(data, filepath);
+      const result = await readFromFile(filepath);
+
+      expect(result).toBe(data);
+      unlinkSync(filepath);
+    });
+
+    it('should create parent directories if they do not exist', async () => {
+      const filepath = join(testDir, 'nested', 'deep', 'file.json');
+      const data = { nested: true };
+
+      await writeToFile(data, filepath, 'json');
+      const result = await readFromFile(filepath, 'json');
+
+      expect(result).toEqual(data);
+
+      // Cleanup
+      unlinkSync(filepath);
+      rmdirSync(join(testDir, 'nested', 'deep'));
+      rmdirSync(join(testDir, 'nested'));
+    });
+  });
+});
+
+describe('Image Conversion', () => {
+  const testDir = join(process.cwd(), 'test-temp-images');
+  const pngFile = join(testDir, 'test.png');
+  const jpegFile = join(testDir, 'test.jpg');
+
+  beforeAll(() => {
+    try { mkdirSync(testDir, { recursive: true }); } catch (e) {}
+
+    // Create valid PNG file
+    writeFileSync(pngFile, Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, ...new Array(100).fill(0)]));
+
+    // Create valid JPEG file
+    writeFileSync(jpegFile, Buffer.from([0xFF, 0xD8, 0xFF, 0xE0, ...new Array(100).fill(0)]));
+  });
+
+  afterAll(() => {
+    try {
+      unlinkSync(pngFile);
+      unlinkSync(jpegFile);
+      rmdirSync(testDir);
+    } catch (e) {}
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  describe('fileToBase64', () => {
+    it('should convert PNG file to base64', async () => {
+      const result = await fileToBase64(pngFile);
+
+      // Should return raw base64 string (not data URI)
+      expect(typeof result).toBe('string');
+      expect(result.length).toBeGreaterThan(100);
+      // PNG files start with "iVBORw0KGgo" in base64
+      expect(result).toMatch(/^iVBORw0KGgo/);
+    });
+
+    it('should convert JPEG file to base64', async () => {
+      const result = await fileToBase64(jpegFile);
+
+      // Should return raw base64 string (not data URI)
+      expect(typeof result).toBe('string');
+      expect(result.length).toBeGreaterThan(100);
+      // JPEG files start with "/9j/" in base64
+      expect(result).toMatch(/^\/9j\//);
+    });
+
+    it('should throw error for non-existent file', async () => {
+      await expect(
+        fileToBase64('/nonexistent/file.jpg')
+      ).rejects.toThrow();
+    });
+  });
+
+  describe('urlToBase64', () => {
+    beforeEach(() => {
+      // Mock DNS to return public IP for URL tests
+      lookup.mockResolvedValue({ address: '8.8.8.8', family: 4 });
+    });
+
+    it('should download and convert image from URL to base64', async () => {
+      const mockImageBuffer = Buffer.from([0xFF, 0xD8, 0xFF, 0xE0, ...new Array(100).fill(0)]);
+
+      axios.get.mockResolvedValue({
+        data: mockImageBuffer,
+        headers: { 'content-type': 'image/jpeg', 'content-length': '104' }
+      });
+
+      const result = await urlToBase64('https://example.com/image.jpg');
+
+      // Should return raw base64 string (not data URI)
+      expect(typeof result).toBe('string');
+      expect(result).toMatch(/^\/9j\//); // JPEG signature in base64
+      expect(axios.get).toHaveBeenCalledWith(
+        'https://example.com/image.jpg',
+        expect.objectContaining({
+          responseType: 'arraybuffer',
+          timeout: 60000,
+          maxRedirects: 5
+        })
+      );
+    });
+
+    it('should reject files exceeding size limit', async () => {
+      const largeBuffer = Buffer.alloc(51 * 1024 * 1024); // 51MB
+
+      axios.get.mockResolvedValue({
+        data: largeBuffer,
+        headers: { 'content-type': 'image/jpeg' }
+      });
+
+      await expect(
+        urlToBase64('https://example.com/large.jpg')
+      ).rejects.toThrow('exceeds maximum size');
+    });
+
+    it('should handle download timeout', async () => {
+      axios.get.mockRejectedValue({ code: 'ETIMEDOUT', message: 'timeout' });
+
+      await expect(
+        urlToBase64('https://example.com/slow.jpg')
+      ).rejects.toThrow();
+    });
+
+    it('should reject HTTP URLs (require HTTPS)', async () => {
+      await expect(
+        urlToBase64('http://example.com/image.jpg')
+      ).rejects.toThrow(); // Will throw during validation
+    });
+  });
+
+  describe('imageToBase64', () => {
+    beforeEach(() => {
+      lookup.mockResolvedValue({ address: '8.8.8.8', family: 4 });
+    });
+
+    it('should handle local file paths', async () => {
+      const result = await imageToBase64(pngFile);
+
+      // Should return raw base64 string (not data URI)
+      expect(typeof result).toBe('string');
+      expect(result).toMatch(/^iVBORw0KGgo/); // PNG signature
+    });
+
+    it('should handle URLs', async () => {
+      const mockImageBuffer = Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, ...new Array(100).fill(0)]);
+
+      axios.get.mockResolvedValue({
+        data: mockImageBuffer,
+        headers: { 'content-type': 'image/png', 'content-length': '108' }
+      });
+
+      const result = await imageToBase64('https://example.com/image.png');
+
+      // Should return raw base64 string (not data URI)
+      expect(typeof result).toBe('string');
+      expect(result).toMatch(/^iVBORw0KGgo/); // PNG signature
+    });
+
+    it('should detect and route file paths correctly', async () => {
+      const result = await imageToBase64(jpegFile);
+
+      // Should return raw base64 string
+      expect(typeof result).toBe('string');
+      expect(result).toMatch(/^\/9j\//); // JPEG signature
+    });
+
+    it('should detect and route URLs correctly', async () => {
+      const mockBuffer = Buffer.from([0xFF, 0xD8, 0xFF, 0xE0, ...new Array(50).fill(0)]);
+
+      axios.get.mockResolvedValue({
+        data: mockBuffer,
+        headers: { 'content-type': 'image/jpeg', 'content-length': '54' }
+      });
+
+      const result = await imageToBase64('https://cdn.example.com/photo.jpg');
+
+      // Should return raw base64 string
+      expect(typeof result).toBe('string');
+      expect(result).toMatch(/^\/9j\//); // JPEG signature
+      expect(axios.get).toHaveBeenCalled();
+    });
+  });
+
+  describe('downloadImage', () => {
+    beforeEach(() => {
+      lookup.mockResolvedValue({ address: '8.8.8.8', family: 4 });
+    });
+
+    it('should download image and save to file', async () => {
+      const mockBuffer = Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, ...new Array(100).fill(0)]);
+      const outputFile = join(testDir, 'downloaded.png');
+
+      axios.get.mockResolvedValue({
+        data: mockBuffer,
+        headers: { 'content-type': 'image/png', 'content-length': '108' }
+      });
+
+      await downloadImage('https://example.com/image.png', outputFile);
+
+      const { existsSync } = require('fs');
+      expect(existsSync(outputFile)).toBe(true);
+
+      // Cleanup
+      unlinkSync(outputFile);
+    });
+
+    it('should create parent directories if needed', async () => {
+      const mockBuffer = Buffer.from([0xFF, 0xD8, 0xFF, 0xE0]);
+      const outputFile = join(testDir, 'nested', 'dir', 'image.jpg');
+
+      axios.get.mockResolvedValue({
+        data: mockBuffer,
+        headers: { 'content-type': 'image/jpeg', 'content-length': '4' }
+      });
+
+      await downloadImage('https://example.com/image.jpg', outputFile);
+
+      const { existsSync } = require('fs');
+      expect(existsSync(outputFile)).toBe(true);
+
+      // Cleanup
+      unlinkSync(outputFile);
+      rmdirSync(join(testDir, 'nested', 'dir'));
+      rmdirSync(join(testDir, 'nested'));
+    });
+
+    it('should reject downloads exceeding size limit', async () => {
+      const largeBuffer = Buffer.alloc(51 * 1024 * 1024);
+
+      axios.get.mockResolvedValue({
+        data: largeBuffer,
+        headers: { 'content-type': 'image/jpeg' }
+      });
+
+      await expect(
+        downloadImage('https://example.com/large.jpg', join(testDir, 'large.jpg'))
+      ).rejects.toThrow('exceeds maximum size');
+    });
+  });
+});
+
+describe('Utility Helpers', () => {
+  describe('pause', () => {
+    it('should pause for specified duration', async () => {
+      const start = Date.now();
+      await pause(0.1); // 100ms
+      const elapsed = Date.now() - start;
+
+      expect(elapsed).toBeGreaterThanOrEqual(90); // Allow 10ms margin
+      expect(elapsed).toBeLessThan(150);
+    });
+
+    it('should work with fractional seconds', async () => {
+      const start = Date.now();
+      await pause(0.05); // 50ms
+      const elapsed = Date.now() - start;
+
+      expect(elapsed).toBeGreaterThanOrEqual(40);
+      expect(elapsed).toBeLessThan(100);
+    });
+  });
+
+  describe('randomNumber', () => {
+    it('should generate number within range', () => {
+      for (let i = 0; i < 100; i++) {
+        const result = randomNumber(1, 10);
+        expect(result).toBeGreaterThanOrEqual(1);
+        expect(result).toBeLessThanOrEqual(10);
+      }
+    });
+
+    it('should generate integers', () => {
+      for (let i = 0; i < 50; i++) {
+        const result = randomNumber(1, 100);
+        expect(Number.isInteger(result)).toBe(true);
+      }
+    });
+
+    it('should handle min === max', () => {
+      const result = randomNumber(5, 5);
+      expect(result).toBe(5);
+    });
+
+    it('should work with large ranges', () => {
+      const result = randomNumber(0, 1000000);
+      expect(result).toBeGreaterThanOrEqual(0);
+      expect(result).toBeLessThanOrEqual(1000000);
     });
   });
 });

@@ -6,9 +6,8 @@
  */
 
 import fs from 'fs/promises';
-import { createReadStream, createWriteStream, statSync } from 'fs';
+import { statSync } from 'fs';
 import path from 'path';
-import { promisify } from 'util';
 import winston from 'winston';
 import axios from 'axios';
 import { lookup } from 'dns/promises';

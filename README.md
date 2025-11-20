@@ -3,7 +3,8 @@
 [![npm version](https://img.shields.io/npm/v/bfl-api.svg)](https://www.npmjs.com/package/bfl-api)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node.js Version](https://img.shields.io/node/v/bfl-api)](https://nodejs.org)
-[![Tests](https://img.shields.io/badge/tests-101%20passing-brightgreen)](test/)
+[![Tests](https://img.shields.io/badge/tests-183%20passing-brightgreen)](test/)
+[![Coverage](https://img.shields.io/badge/coverage-84.84%25-brightgreen)](test/)
 
 A Node.js wrapper for the [Black Forest Labs API](https://docs.bfl.ml/quick_start/introduction) that provides easy access to FLUX and Kontext image generation models. Generate stunning AI images with professional quality through a simple command-line interface.
 
@@ -75,7 +76,7 @@ The Black Forest Labs API provides access to state-of-the-art image generation m
 - **Image Input Support** - Convert local files or URLs to base64 with validation
 - **Organized Storage** - Structured directories with timestamped files and metadata
 - **CLI Orchestration** - Command-line tool for easy batch generation
-- **Comprehensive Testing** - 101 tests with Vitest for reliability
+- **Comprehensive Testing** - 183 tests with 84.84% coverage (api.js: 84.48%, utils.js: 83.5%, config.js: 88.63%)
 
 ## Models
 
@@ -947,11 +948,25 @@ npm run bfl:dev -- --prompt "a cat" --width 512 --height 512
 
 ### Testing Commands
 ```bash
-npm test                 # Run all tests with Vitest
+npm test                 # Run all 183 tests with Vitest
 npm run test:watch       # Watch mode for development
 npm run test:ui          # Interactive UI in browser
-npm run test:coverage    # Generate coverage report
+npm run test:coverage    # Generate coverage report (84.84% overall)
 ```
+
+**Test Coverage:**
+- Overall: 84.84% lines, 85.3% branches
+- api.js: 84.48% lines (all generation methods, polling, retries)
+- utils.js: 83.5% lines (file I/O, image conversion, validation)
+- config.js: 88.63% lines (parameter validation, configuration)
+
+Tests validate actual behavior including:
+- All 7 generation methods with proper request/response handling
+- Comprehensive polling logic with timeout, retry, and exponential backoff
+- Image conversion pipeline (file → base64, URL → base64)
+- File I/O operations (read, write, directories)
+- Security features (SSRF protection, API key redaction, error sanitization)
+- Parameter validation (pre-flight checks to save API credits)
 
 ## Rate Limits
 
@@ -969,8 +984,12 @@ BFL API rate limits vary by account tier. The service automatically:
 
 ## Related Packages
 
-- [`stability-ai-api`](https://github.com/aself101/stability-ai-api) – Stable Diffusion 3.5 + upscalers
-- [`openai-image-api`](https://github.com/aself101/openai-image-api) – DALL·E & GPT Image 1
+This package is part of the img-gen ecosystem. Check out these other AI generation services:
+
+- [`ideogram-api`](https://github.com/aself101/ideogram-api) - Ideogram API wrapper for image generation, editing, remixing, and manipulation
+- [`stability-ai-api`](https://github.com/aself101/stability-ai-api) - Stability AI API wrapper for Stable Diffusion 3.5 and image upscaling
+- [`google-genai-api`](https://github.com/aself101/google-genai-api) - Google Generative AI (Imagen) wrapper
+- [`openai-api`](https://github.com/aself101/openai-api) - OpenAI API wrapper for DALL-E and GPT Image generation
 
 ---
 
