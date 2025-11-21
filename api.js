@@ -423,16 +423,16 @@ export class BflAPI {
    *
    * @param {Object} params - Generation parameters
    * @param {string} params.finetune_id - Required: ID of the fine-tuned model
-   * @param {string} params.image - Required: Base64-encoded image to modify
+   * @param {string} params.image - Required: Base64-encoded image, file path, or URL (will be converted to base64)
    * @param {string} params.prompt - Description of changes to make (default: '')
-   * @param {string} [params.mask] - Base64-encoded mask (optional if alpha channel in image)
-   * @param {number} [params.finetune_strength=1.1] - Finetune strength (0.0-2.0)
-   * @param {number} [params.steps=50] - Number of generation steps (15-50)
-   * @param {number} [params.guidance=60] - Guidance strength (1.5-100)
+   * @param {string} [params.mask] - Base64-encoded mask, file path, or URL (optional if alpha channel in image)
+   * @param {number} [params.finetune_strength] - Finetune strength (0.0-2.0, API default: 1.1)
+   * @param {number} [params.steps] - Number of generation steps (15-50)
+   * @param {number} [params.guidance] - Guidance strength (1.5-100)
    * @param {number} [params.seed] - Optional seed for reproducibility
-   * @param {number} [params.safety_tolerance=2] - Moderation tolerance (0-6)
-   * @param {string} [params.output_format='jpeg'] - Output format: 'jpeg' or 'png'
-   * @param {boolean} [params.prompt_upsampling=false] - Enable AI prompt enhancement
+   * @param {number} [params.safety_tolerance] - Moderation tolerance (0-6)
+   * @param {string} [params.output_format] - Output format: 'jpeg' or 'png'
+   * @param {boolean} [params.prompt_upsampling] - Enable AI prompt enhancement
    * @returns {Promise<Object>} Task object with id and polling_url
    *
    * @example

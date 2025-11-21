@@ -266,6 +266,94 @@ describe('Configuration Functions', () => {
       });
     });
 
+    describe('flux-pro-fill-finetuned validation', () => {
+      it('should accept valid flux-pro-fill-finetuned parameters', () => {
+        const result = validateModelParams('flux-pro-fill-finetuned', {
+          prompt: 'apply custom style',
+          finetune_strength: 1.1,
+          steps: 30,
+          guidance: 5.5,
+          safety_tolerance: 3,
+          output_format: 'png'
+        });
+        expect(result.valid).toBe(true);
+        expect(result.errors).toHaveLength(0);
+      });
+
+      it('should reject finetune_strength below minimum (0)', () => {
+        const result = validateModelParams('flux-pro-fill-finetuned', { finetune_strength: -0.1 });
+        expect(result.valid).toBe(false);
+        expect(result.errors.some(e => e.includes('finetune_strength must be between 0 and 2'))).toBe(true);
+      });
+
+      it('should reject finetune_strength above maximum (2)', () => {
+        const result = validateModelParams('flux-pro-fill-finetuned', { finetune_strength: 2.5 });
+        expect(result.valid).toBe(false);
+        expect(result.errors.some(e => e.includes('finetune_strength must be between 0 and 2'))).toBe(true);
+      });
+
+      it('should accept finetune_strength at boundaries and middle', () => {
+        const zeroResult = validateModelParams('flux-pro-fill-finetuned', { finetune_strength: 0 });
+        expect(zeroResult.valid).toBe(true);
+
+        const midResult = validateModelParams('flux-pro-fill-finetuned', { finetune_strength: 1.1 });
+        expect(midResult.valid).toBe(true);
+
+        const maxResult = validateModelParams('flux-pro-fill-finetuned', { finetune_strength: 2 });
+        expect(maxResult.valid).toBe(true);
+      });
+
+      it('should reject steps below minimum (15)', () => {
+        const result = validateModelParams('flux-pro-fill-finetuned', { steps: 10 });
+        expect(result.valid).toBe(false);
+        expect(result.errors.some(e => e.includes('Steps must be between 15 and 50'))).toBe(true);
+      });
+
+      it('should reject steps above maximum (50)', () => {
+        const result = validateModelParams('flux-pro-fill-finetuned', { steps: 60 });
+        expect(result.valid).toBe(false);
+        expect(result.errors.some(e => e.includes('Steps must be between 15 and 50'))).toBe(true);
+      });
+
+      it('should reject guidance below minimum (1.5)', () => {
+        const result = validateModelParams('flux-pro-fill-finetuned', { guidance: 1.0 });
+        expect(result.valid).toBe(false);
+        expect(result.errors.some(e => e.includes('Guidance must be between 1.5 and 100'))).toBe(true);
+      });
+
+      it('should reject guidance above maximum (100)', () => {
+        const result = validateModelParams('flux-pro-fill-finetuned', { guidance: 150 });
+        expect(result.valid).toBe(false);
+        expect(result.errors.some(e => e.includes('Guidance must be between 1.5 and 100'))).toBe(true);
+      });
+
+      it('should reject safety_tolerance below minimum (0)', () => {
+        const result = validateModelParams('flux-pro-fill-finetuned', { safety_tolerance: -1 });
+        expect(result.valid).toBe(false);
+        expect(result.errors.some(e => e.includes('safety_tolerance must be between 0 and 6'))).toBe(true);
+      });
+
+      it('should reject safety_tolerance above maximum (6)', () => {
+        const result = validateModelParams('flux-pro-fill-finetuned', { safety_tolerance: 7 });
+        expect(result.valid).toBe(false);
+        expect(result.errors.some(e => e.includes('safety_tolerance must be between 0 and 6'))).toBe(true);
+      });
+
+      it('should accept valid output formats', () => {
+        const jpegResult = validateModelParams('flux-pro-fill-finetuned', { output_format: 'jpeg' });
+        expect(jpegResult.valid).toBe(true);
+
+        const pngResult = validateModelParams('flux-pro-fill-finetuned', { output_format: 'png' });
+        expect(pngResult.valid).toBe(true);
+      });
+
+      it('should reject invalid output format', () => {
+        const result = validateModelParams('flux-pro-fill-finetuned', { output_format: 'webp' });
+        expect(result.valid).toBe(false);
+        expect(result.errors.some(e => e.includes('Invalid output_format'))).toBe(true);
+      });
+    });
+
     describe('flux-pro-expand validation', () => {
       it('should accept valid flux-pro-expand parameters', () => {
         const result = validateModelParams('flux-pro-expand', {

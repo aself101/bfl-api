@@ -290,6 +290,14 @@ export function validateModelParams(model, params) {
     }
   }
 
+  // Validate finetune_strength (flux-pro-fill-finetuned)
+  if (params.finetune_strength !== undefined && constraints.finetuneStrength) {
+    const { min, max } = constraints.finetuneStrength;
+    if (params.finetune_strength < min || params.finetune_strength > max) {
+      errors.push(`finetune_strength must be between ${min} and ${max} for ${model}`);
+    }
+  }
+
   // Validate output_format (flux-pro-fill, flux-pro-expand)
   if (params.output_format && constraints.outputFormats) {
     if (!constraints.outputFormats.includes(params.output_format)) {

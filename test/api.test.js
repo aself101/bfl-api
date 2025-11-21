@@ -1025,4 +1025,64 @@ describe('BflAPI Class', () => {
       ).rejects.toThrow();
     });
   });
+
+  describe('Get My Finetunes', () => {
+    it('should fetch finetunes list from API', async () => {
+      const mockResponse = {
+        data: {
+          finetunes: ['finetune-1', 'finetune-2', 'custom-model-abc']
+        }
+      };
+      axios.get.mockResolvedValue(mockResponse);
+
+      const result = await api.getMyFinetunes();
+
+      expect(axios.get).toHaveBeenCalledWith(
+        expect.stringContaining('/v1/my_finetunes'),
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            'x-key': 'test_api_key_for_unit_tests'
+          })
+        })
+      );
+
+      expect(result.finetunes).toEqual(['finetune-1', 'finetune-2', 'custom-model-abc']);
+      expect(result.finetunes).toHaveLength(3);
+    });
+
+    it('should handle empty finetunes list', async () => {
+      const mockResponse = {
+        data: {
+          finetunes: []
+        }
+      };
+      axios.get.mockResolvedValue(mockResponse);
+
+      const result = await api.getMyFinetunes();
+
+      expect(result.finetunes).toEqual([]);
+      expect(result.finetunes).toHaveLength(0);
+    });
+
+    it('should throw error on API failure', async () => {
+      axios.get.mockRejectedValue({
+        response: { status: 401 },
+        message: 'Unauthorized'
+      });
+
+      await expect(
+        api.getMyFinetunes()
+      ).rejects.toThrow();
+    });
+
+    it('should throw error on network failure', async () => {
+      axios.get.mockRejectedValue({
+        message: 'Network Error'
+      });
+
+      await expect(
+        api.getMyFinetunes()
+      ).rejects.toThrow();
+    });
+  });
 });
