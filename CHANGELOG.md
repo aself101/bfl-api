@@ -1,3 +1,16 @@
+# [1.5.0](https://github.com/aself101/bfl-api/compare/v1.4.3...v1.5.0) (2025-11-21)
+
+
+### Bug Fixes
+
+* **cli:** use dynamic version from package.json to prevent drift ([71ac0a6](https://github.com/aself101/bfl-api/commit/71ac0a6d9cafb64ab7a0e1255a80e1fc6abc73c1))
+* **validation:** address validator feedback - add tests, docs, and parameter validation ([f3dc77c](https://github.com/aself101/bfl-api/commit/f3dc77c3136b11e5a24b98769266500139c1b07e))
+
+
+### Features
+
+* **api:** add FLUX.1 Fill [pro] Finetune and my_finetunes endpoints ([91f6a47](https://github.com/aself101/bfl-api/commit/91f6a47f34c6d569b903a36c57550670bc75d7b4))
+
 ## [1.4.3](https://github.com/aself101/bfl-api/compare/v1.4.2...v1.4.3) (2025-11-20)
 
 
