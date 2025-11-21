@@ -45,6 +45,7 @@ export const MODEL_ENDPOINTS = {
   'flux-pro': '/v1/flux-pro-1.1',
   'flux-ultra': '/v1/flux-pro-1.1-ultra',
   'flux-pro-fill': '/v1/flux-pro-1.0-fill',
+  'flux-pro-fill-finetuned': '/v1/flux-pro-1.0-fill-finetuned',
   'flux-pro-expand': '/v1/flux-pro-1.0-expand',
   'kontext-pro': '/v1/flux-kontext-pro',
   'kontext-max': '/v1/flux-kontext-max'
@@ -71,6 +72,14 @@ export const MODEL_CONSTRAINTS = {
     promptMaxLength: 10000
   },
   'flux-pro-fill': {
+    steps: { min: 15, max: 50 },
+    guidance: { min: 1.5, max: 100 },
+    safetyTolerance: { min: 0, max: 6 },
+    outputFormats: ['jpeg', 'png'],
+    promptMaxLength: 10000
+  },
+  'flux-pro-fill-finetuned': {
+    finetuneStrength: { min: 0, max: 2 },
     steps: { min: 15, max: 50 },
     guidance: { min: 1.5, max: 100 },
     safetyTolerance: { min: 0, max: 6 },

@@ -418,6 +418,69 @@ export class BflAPI {
   }
 
   /**
+   * Generate image using FLUX.1 Fill [pro] with a fine-tuned model.
+   * Inpainting with custom trained models using input image and mask.
+   *
+   * @param {Object} params - Generation parameters
+   * @param {string} params.finetune_id - Required: ID of the fine-tuned model
+   * @param {string} params.image - Required: Base64-encoded image to modify
+   * @param {string} params.prompt - Description of changes to make (default: '')
+   * @param {string} [params.mask] - Base64-encoded mask (optional if alpha channel in image)
+   * @param {number} [params.finetune_strength=1.1] - Finetune strength (0.0-2.0)
+   * @param {number} [params.steps=50] - Number of generation steps (15-50)
+   * @param {number} [params.guidance=60] - Guidance strength (1.5-100)
+   * @param {number} [params.seed] - Optional seed for reproducibility
+   * @param {number} [params.safety_tolerance=2] - Moderation tolerance (0-6)
+   * @param {string} [params.output_format='jpeg'] - Output format: 'jpeg' or 'png'
+   * @param {boolean} [params.prompt_upsampling=false] - Enable AI prompt enhancement
+   * @returns {Promise<Object>} Task object with id and polling_url
+   *
+   * @example
+   * const task = await api.generateFluxProFillFinetuned({
+   *   finetune_id: 'my-finetune',
+   *   image: 'path/to/image.jpg',
+   *   prompt: 'A beautiful sunset sky',
+   *   finetune_strength: 1.1,
+   *   steps: 30,
+   *   guidance: 60
+   * });
+   */
+  async generateFluxProFillFinetuned(params) {
+    this._verifyApiKey();
+
+    if (!params.finetune_id) {
+      throw new Error('finetune_id is required for FLUX.1 Fill [pro] finetune');
+    }
+
+    if (!params.image) {
+      throw new Error('image is required for FLUX.1 Fill [pro] finetune');
+    }
+
+    const payload = {
+      finetune_id: params.finetune_id,
+      image: params.image,
+      prompt: params.prompt || '',
+      ...(params.mask && { mask: params.mask }),
+      ...(params.finetune_strength !== undefined && { finetune_strength: params.finetune_strength }),
+      ...(params.steps !== undefined && { steps: params.steps }),
+      ...(params.guidance !== undefined && { guidance: params.guidance }),
+      ...(params.seed !== undefined && { seed: params.seed }),
+      ...(params.safety_tolerance !== undefined && { safety_tolerance: params.safety_tolerance }),
+      ...(params.output_format && { output_format: params.output_format }),
+      ...(params.prompt_upsampling !== undefined && { prompt_upsampling: params.prompt_upsampling })
+    };
+
+    try {
+      const result = await this._makeRequest('POST', MODEL_ENDPOINTS['flux-pro-fill-finetuned'], payload);
+      this.logger.info(`FLUX.1 Fill [pro] finetune generation submitted: ${result.id}`);
+      return result;
+    } catch (error) {
+      this.logger.error(`Error generating with FLUX.1 Fill [pro] finetune: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
    * Generate image using FLUX.1 Expand [pro] model.
    * Expands images by adding pixels on any combination of sides while maintaining context.
    *
@@ -753,6 +816,29 @@ export class BflAPI {
       return result;
     } catch (error) {
       this.logger.error(`Error fetching user credits: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Get list of all fine-tuned models created by the user.
+   *
+   * @returns {Promise<Object>} Object containing array of finetune_ids
+   *
+   * @example
+   * const { finetunes } = await api.getMyFinetunes();
+   * console.log('Your finetunes:', finetunes);
+   */
+  async getMyFinetunes() {
+    this._verifyApiKey();
+
+    try {
+      const result = await this._makeRequest('GET', '/v1/my_finetunes');
+      const count = result.finetunes?.length || 0;
+      this.logger.info(`Found ${count} fine-tuned model(s)`);
+      return result;
+    } catch (error) {
+      this.logger.error(`Error fetching finetunes: ${error.message}`);
       throw error;
     }
   }

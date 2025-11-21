@@ -49,9 +49,9 @@ describe('Configuration Constants', () => {
   });
 
   describe('Model Endpoints', () => {
-    it('should have all 7 model endpoints', () => {
+    it('should have all 8 model endpoints', () => {
       expect(MODEL_ENDPOINTS).toBeDefined();
-      expect(Object.keys(MODEL_ENDPOINTS)).toHaveLength(7);
+      expect(Object.keys(MODEL_ENDPOINTS)).toHaveLength(8);
     });
 
     it('should have flux-dev endpoint', () => {

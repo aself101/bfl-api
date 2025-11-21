@@ -106,38 +106,47 @@ ${'='.repeat(60)}
        --image ./landscape.jpg \\
        --steps 25
 
-9. FLUX.1 Expand [pro] - Extend image on all sides
-   $ npm run bfl -- --flux-expand \\
-       --prompt "extend with dramatic clouds and mountain vista" \\
+9. FLUX.1 Fill [pro] Finetune - Custom model inpainting
+   $ npm run bfl -- --flux-fill-finetuned \\
+       --finetune-id "my-custom-model" \\
+       --prompt "apply my custom style to the masked area" \\
        --image ./photo.jpg \\
-       --top 512 --bottom 256 --left 256 --right 256 \\
-       --steps 30 --guidance 60
+       --mask ./mask.png \\
+       --finetune-strength 1.2 \\
+       --steps 35 --guidance 60
 
-10. FLUX.1 Expand [pro] - Vertical expansion
+10. FLUX.1 Expand [pro] - Extend image on all sides
+    $ npm run bfl -- --flux-expand \\
+        --prompt "extend with dramatic clouds and mountain vista" \\
+        --image ./photo.jpg \\
+        --top 512 --bottom 256 --left 256 --right 256 \\
+        --steps 30 --guidance 60
+
+11. FLUX.1 Expand [pro] - Vertical expansion
     $ npm run bfl -- --flux-expand \\
         --prompt "add sky with clouds above and ground below" \\
         --image ./portrait.jpg \\
         --top 1024 --bottom 512 \\
         --steps 40
 
-11. Kontext Pro - Image editing
+12. Kontext Pro - Image editing
     $ npm run bfl -- --kontext-pro \\
         --prompt "make it look like winter, add snow" \\
         --input-image ./summer_photo.jpg
 
-12. Kontext Pro - Multi-reference editing
+13. Kontext Pro - Multi-reference editing
     $ npm run bfl -- --kontext-pro \\
         --prompt "combine the style from image 2 with subject from image 1" \\
         --input-image ./subject.jpg \\
         --input-image-2 ./style_reference.jpg
 
-13. Kontext Max - Premium quality editing
+14. Kontext Max - Premium quality editing
     $ npm run bfl -- --kontext-max \\
         --prompt "enhance colors, increase contrast, professional grade" \\
         --input-image ./photo.jpg \\
         --output-format png
 
-14. Batch generation - Multiple prompts
+15. Batch generation - Multiple prompts
     $ npm run bfl -- --flux-dev \\
         --prompt "a red sports car" \\
         --prompt "a blue vintage car" \\
@@ -169,7 +178,10 @@ ${'='.repeat(60)}
     # or
     $ npm run bfl -- --credits
 
-19. Poll existing task
+19. List your fine-tuned models
+    $ npm run bfl -- --list-finetunes
+
+20. Poll existing task
     $ npm run bfl -- --get-result abc123def456
 
 AUTHENTICATION OPTIONS:
@@ -204,6 +216,7 @@ function getSelectedModel(options) {
   if (options.fluxPro) return 'flux-pro';
   if (options.fluxUltra) return 'flux-ultra';
   if (options.fluxFill) return 'flux-pro-fill';
+  if (options.fluxFillFinetuned) return 'flux-pro-fill-finetuned';
   if (options.fluxExpand) return 'flux-pro-expand';
   if (options.kontextPro) return 'kontext-pro';
   if (options.kontextMax) return 'kontext-max';
@@ -255,6 +268,20 @@ function buildFluxUltraParams(params, options) {
  * @param {Object} options - Command options
  */
 function buildFluxProFillParams(params, options) {
+  if (options.steps) params.steps = options.steps;
+  if (options.guidance !== undefined) params.guidance = options.guidance;
+  if (options.promptUpsampling !== undefined) params.prompt_upsampling = options.promptUpsampling;
+}
+
+/**
+ * Build parameters for FLUX.1 Fill [pro] Finetune model.
+ *
+ * @param {Object} params - Base parameters object
+ * @param {Object} options - Command options
+ */
+function buildFluxProFillFinetunedParams(params, options) {
+  if (options.finetuneId) params.finetune_id = options.finetuneId;
+  if (options.finetuneStrength !== undefined) params.finetune_strength = options.finetuneStrength;
   if (options.steps) params.steps = options.steps;
   if (options.guidance !== undefined) params.guidance = options.guidance;
   if (options.promptUpsampling !== undefined) params.prompt_upsampling = options.promptUpsampling;
@@ -371,6 +398,8 @@ async function generateImage(api, model, prompt, options, index, total) {
       buildFluxUltraParams(params, options);
     } else if (model === 'flux-pro-fill') {
       buildFluxProFillParams(params, options);
+    } else if (model === 'flux-pro-fill-finetuned') {
+      buildFluxProFillFinetunedParams(params, options);
     } else if (model === 'flux-pro-expand') {
       buildFluxProExpandParams(params, options);
     }
@@ -396,6 +425,8 @@ async function generateImage(api, model, prompt, options, index, total) {
       task = await api.generateFluxProUltra(params);
     } else if (model === 'flux-pro-fill') {
       task = await api.generateFluxProFill(params);
+    } else if (model === 'flux-pro-fill-finetuned') {
+      task = await api.generateFluxProFillFinetuned(params);
     } else if (model === 'flux-pro-expand') {
       task = await api.generateFluxProExpand(params);
     } else if (model === 'kontext-pro') {
@@ -549,6 +580,46 @@ function validateParameters(model, options) {
     }
   }
 
+  // Validate FLUX.1 Fill [pro] Finetune specific parameters
+  if (model === 'flux-pro-fill-finetuned') {
+    if (!options.finetuneId) {
+      errors.push('--finetune-id is required for FLUX.1 Fill [pro] Finetune');
+    }
+
+    if (options.finetuneStrength !== undefined) {
+      if (options.finetuneStrength < 0 || options.finetuneStrength > 2) {
+        errors.push('Finetune strength must be between 0 and 2');
+      }
+    }
+
+    if (options.steps !== undefined) {
+      if (options.steps < 15 || options.steps > 50) {
+        errors.push('Steps must be between 15 and 50 for FLUX.1 Fill [pro] Finetune');
+      }
+    }
+
+    if (options.guidance !== undefined) {
+      if (options.guidance < 1.5 || options.guidance > 100) {
+        errors.push('Guidance must be between 1.5 and 100 for FLUX.1 Fill [pro] Finetune');
+      }
+    }
+
+    if (!options.image) {
+      errors.push('--image is required for FLUX.1 Fill [pro] Finetune');
+    }
+
+    // Validate mask requirement (same as regular Fill)
+    if (options.image && !options.mask) {
+      const imageExt = path.extname(options.image).toLowerCase();
+      if (imageExt === '.jpg' || imageExt === '.jpeg') {
+        errors.push('FLUX.1 Fill [pro] Finetune requires --mask parameter when using JPG/JPEG images (they do not support alpha channels). Either provide --mask or use a PNG image with an alpha channel.');
+      } else if (imageExt === '.png') {
+        // PNG can have alpha channel, but warn user
+        logger.warn('⚠ Using PNG without --mask parameter. The PNG must contain an alpha channel (transparency) to define the mask area, otherwise the API will reject it.');
+      }
+    }
+  }
+
   // Validate FLUX.1 Expand [pro] specific parameters
   if (model === 'flux-pro-expand') {
     if (options.steps !== undefined) {
@@ -634,6 +705,7 @@ async function main() {
     .option('--flux-pro', 'Use FLUX 1.1 [pro] model (professional quality with Redux)')
     .option('--flux-ultra', 'Use FLUX 1.1 [pro] Ultra model (aspect ratios and raw mode)')
     .option('--flux-fill', 'Use FLUX.1 Fill [pro] model (inpainting with masks)')
+    .option('--flux-fill-finetuned', 'Use FLUX.1 Fill [pro] with fine-tuned model (custom model inpainting)')
     .option('--flux-expand', 'Use FLUX.1 Expand [pro] model (expand/outpaint images)')
     .option('--kontext-pro', 'Use Kontext Pro model (multi-reference editing)')
     .option('--kontext-max', 'Use Kontext Max model (maximum quality editing)');
@@ -676,11 +748,17 @@ async function main() {
     .option('--left <number>', 'Pixels to expand on left (0-2048, default: 0)', parseInt)
     .option('--right <number>', 'Pixels to expand on right (0-2048, default: 0)', parseInt);
 
+  // FLUX.1 Fill [pro] Finetune specific
+  program
+    .option('--finetune-id <id>', 'Fine-tuned model ID (required for --flux-fill-finetuned)')
+    .option('--finetune-strength <number>', 'Finetune strength (0-2, default: 1.1)', parseFloat);
+
   // Utility options
   program
     .option('--api-key <key>', 'BFL API key (overrides env vars and config files)')
     .option('--examples', 'Show usage examples and exit')
     .option('--credits', 'Check account credits balance')
+    .option('--list-finetunes', 'List all your fine-tuned models')
     .option('--get-result <id>', 'Poll specific task ID for result')
     .option('--timeout <seconds>', 'Maximum wait time (default: 300)', parseInt)
     .option('--output-dir <path>', 'Custom output directory')
@@ -718,6 +796,28 @@ async function main() {
       process.exit(0);
     } catch (error) {
       logger.error(`Failed to fetch credits: ${error.message}`);
+      process.exit(1);
+    }
+  }
+
+  // Handle list-finetunes
+  if (options.listFinetunes) {
+    try {
+      const api = new BflAPI({ apiKey: options.apiKey, logLevel: options.logLevel });
+      const { finetunes } = await api.getMyFinetunes();
+      logger.info('');
+      logger.info('Your Fine-tuned Models:');
+      if (finetunes && finetunes.length > 0) {
+        finetunes.forEach((finetune, index) => {
+          logger.info(`  ${index + 1}. ${finetune}`);
+        });
+      } else {
+        logger.info('  No fine-tuned models found.');
+      }
+      logger.info('');
+      process.exit(0);
+    } catch (error) {
+      logger.error(`Failed to fetch finetunes: ${error.message}`);
       process.exit(1);
     }
   }

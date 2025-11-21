@@ -42,9 +42,9 @@ describe('BflAPI Class', () => {
       expect(BASE_URL.startsWith('https://')).toBe(true);
     });
 
-    it('should have all 7 model endpoints', () => {
+    it('should have all 8 model endpoints', () => {
       expect(MODEL_ENDPOINTS).toBeDefined();
-      expect(Object.keys(MODEL_ENDPOINTS)).toHaveLength(7);
+      expect(Object.keys(MODEL_ENDPOINTS)).toHaveLength(8);
     });
 
     it('should have valid endpoint paths', () => {
@@ -530,6 +530,138 @@ describe('BflAPI Class', () => {
           guidance: 5.5,
           seed: 12345,
           safety_tolerance: 4,
+          output_format: 'png',
+          prompt_upsampling: true
+        }),
+        expect.any(Object)
+      );
+    });
+  });
+
+  describe('FLUX.1 Fill [pro] Finetune Generation', () => {
+    it('should throw error if finetune_id is missing', async () => {
+      await expect(async () => {
+        await api.generateFluxProFillFinetuned({
+          image: 'data:image/png;base64,abc123',
+          prompt: 'Apply custom style'
+        });
+      }).rejects.toThrow('finetune_id is required for FLUX.1 Fill [pro] finetune');
+    });
+
+    it('should throw error if image is missing', async () => {
+      await expect(async () => {
+        await api.generateFluxProFillFinetuned({
+          finetune_id: 'my-finetune',
+          prompt: 'Apply custom style'
+        });
+      }).rejects.toThrow('image is required for FLUX.1 Fill [pro] finetune');
+    });
+
+    it('should generate image with finetune model', async () => {
+      const mockResponse = {
+        data: { id: 'task_finetune_123', status: 'Pending' }
+      };
+      axios.post.mockResolvedValue(mockResponse);
+
+      const result = await api.generateFluxProFillFinetuned({
+        finetune_id: 'my-custom-model',
+        image: 'data:image/png;base64,abc123',
+        prompt: 'Apply my custom style',
+        finetune_strength: 1.2,
+        steps: 35,
+        guidance: 60
+      });
+
+      expect(axios.post).toHaveBeenCalledWith(
+        expect.stringContaining('/v1/flux-pro-1.0-fill-finetuned'),
+        expect.objectContaining({
+          finetune_id: 'my-custom-model',
+          image: 'data:image/png;base64,abc123',
+          prompt: 'Apply my custom style',
+          finetune_strength: 1.2,
+          steps: 35,
+          guidance: 60
+        }),
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            'x-key': 'test_api_key_for_unit_tests'
+          })
+        })
+      );
+
+      expect(result.id).toBe('task_finetune_123');
+    });
+
+    it('should handle empty prompt (default to empty string)', async () => {
+      const mockResponse = { data: { id: 'task_123', status: 'Pending' } };
+      axios.post.mockResolvedValue(mockResponse);
+
+      await api.generateFluxProFillFinetuned({
+        finetune_id: 'my-model',
+        image: 'data:image/png;base64,img'
+      });
+
+      expect(axios.post).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          finetune_id: 'my-model',
+          image: 'data:image/png;base64,img',
+          prompt: ''
+        }),
+        expect.any(Object)
+      );
+    });
+
+    it('should handle mask parameter correctly', async () => {
+      const mockResponse = { data: { id: 'task_123', status: 'Pending' } };
+      axios.post.mockResolvedValue(mockResponse);
+
+      await api.generateFluxProFillFinetuned({
+        finetune_id: 'my-model',
+        image: 'data:image/png;base64,img',
+        mask: 'data:image/png;base64,mask',
+        prompt: 'Fill with custom style'
+      });
+
+      expect(axios.post).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          finetune_id: 'my-model',
+          image: 'data:image/png;base64,img',
+          mask: 'data:image/png;base64,mask',
+          prompt: 'Fill with custom style'
+        }),
+        expect.any(Object)
+      );
+    });
+
+    it('should include all optional parameters when provided', async () => {
+      const mockResponse = { data: { id: 'task_123', status: 'Pending' } };
+      axios.post.mockResolvedValue(mockResponse);
+
+      await api.generateFluxProFillFinetuned({
+        finetune_id: 'my-model',
+        image: 'data:image/png;base64,img',
+        prompt: 'Custom style',
+        mask: 'data:image/png;base64,mask',
+        finetune_strength: 1.5,
+        steps: 40,
+        guidance: 70,
+        seed: 54321,
+        safety_tolerance: 3,
+        output_format: 'png',
+        prompt_upsampling: true
+      });
+
+      expect(axios.post).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          finetune_id: 'my-model',
+          finetune_strength: 1.5,
+          steps: 40,
+          guidance: 70,
+          seed: 54321,
+          safety_tolerance: 3,
           output_format: 'png',
           prompt_upsampling: true
         }),

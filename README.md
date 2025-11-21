@@ -3,7 +3,7 @@
 [![npm version](https://img.shields.io/npm/v/bfl-api.svg)](https://www.npmjs.com/package/bfl-api)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node.js Version](https://img.shields.io/node/v/bfl-api)](https://nodejs.org)
-[![Tests](https://img.shields.io/badge/tests-183%20passing-brightgreen)](test/)
+[![Tests](https://img.shields.io/badge/tests-189%20passing-brightgreen)](test/)
 [![Coverage](https://img.shields.io/badge/coverage-84.84%25-brightgreen)](test/)
 
 A Node.js wrapper for the [Black Forest Labs API](https://docs.bfl.ml/quick_start/introduction) that provides easy access to FLUX and Kontext image generation models. Generate stunning AI images with professional quality through a simple command-line interface.
@@ -65,7 +65,7 @@ console.log('Image URL:', result.result.sample);
 
 The Black Forest Labs API provides access to state-of-the-art image generation models. This Node.js service implements:
 
-- **7 Generation Models** - FLUX.1 [dev], FLUX 1.1 [pro], FLUX Ultra, FLUX.1 Fill [pro], FLUX.1 Expand [pro], Kontext Pro, Kontext Max
+- **8 Generation Models** - FLUX.1 [dev], FLUX 1.1 [pro], FLUX Ultra, FLUX.1 Fill [pro], FLUX.1 Fill [pro] Finetune, FLUX.1 Expand [pro], Kontext Pro, Kontext Max
 - **Production Security** - API key redaction, error sanitization, HTTPS enforcement, comprehensive SSRF protection (including IPv4-mapped IPv6 bypass prevention)
 - **DoS Prevention** - Request timeouts (30s API, 60s downloads), file size limits (50MB), redirect limits
 - **Parameter Validation** - Pre-flight validation catches invalid parameters before API calls
@@ -76,7 +76,7 @@ The Black Forest Labs API provides access to state-of-the-art image generation m
 - **Image Input Support** - Convert local files or URLs to base64 with validation
 - **Organized Storage** - Structured directories with timestamped files and metadata
 - **CLI Orchestration** - Command-line tool for easy batch generation
-- **Comprehensive Testing** - 183 tests with 84.84% coverage (api.js: 84.48%, utils.js: 83.5%, config.js: 88.63%)
+- **Comprehensive Testing** - 189 tests with 84.84% coverage (api.js: 84.48%, utils.js: 83.5%, config.js: 88.63%)
 
 ## Models
 
@@ -122,6 +122,23 @@ Professional inpainting with mask-based editing for precise modifications.
 - `safety_tolerance` - Content moderation strictness (0-6)
 
 **Note:** Requires either a separate mask image OR a PNG with an alpha channel (transparency) defining the edit region.
+
+### FLUX.1 Fill [pro] Finetune
+Inpainting with custom fine-tuned models for specialized styles and subjects.
+
+**Best for:** Applying custom trained models to inpainting tasks, consistent style application, specialized subject matter
+
+**Parameters:**
+- `finetune_id` - ID of your fine-tuned model (required)
+- `image` - Input image to edit (required, base64 or URL)
+- `prompt` - Description of desired changes (optional, default: '')
+- `mask` - Mask defining edit region (required for JPG/JPEG, base64 or URL)
+- `finetune_strength` - Model influence strength (0-2, default: 1.1)
+- `steps` - Inference steps (15-50)
+- `guidance` - Prompt adherence strength (1.5-100)
+- `safety_tolerance` - Content moderation strictness (0-6)
+
+**Note:** Requires a fine-tuned model ID from your BFL account. Same masking rules as regular Fill apply.
 
 ### FLUX.1 Expand [pro]
 Professional image expansion/outpainting that extends images beyond original boundaries.
@@ -223,7 +240,7 @@ This is perfect for global npm installations (`npm install -g bfl-api`) where yo
 
 ## Installation
 
-### Option 1: Install from npm (Coming Soon)
+### Option 1: Install from npm
 
 ```bash
 # Install globally for CLI usage
@@ -350,13 +367,14 @@ npm run bfl -- [model] [options]
 Choose one model:
 
 ```bash
---flux-dev         # FLUX.1 [dev] - Full control
---flux-pro         # FLUX 1.1 [pro] - Professional quality
---flux-ultra       # FLUX 1.1 [pro] Ultra - Maximum quality
---flux-fill        # FLUX.1 Fill [pro] - Inpainting/mask editing
---flux-expand      # FLUX.1 Expand [pro] - Image expansion/outpainting
---kontext-pro      # Kontext Pro - Image editing
---kontext-max      # Kontext Max - Premium editing
+--flux-dev               # FLUX.1 [dev] - Full control
+--flux-pro               # FLUX 1.1 [pro] - Professional quality
+--flux-ultra             # FLUX 1.1 [pro] Ultra - Maximum quality
+--flux-fill              # FLUX.1 Fill [pro] - Inpainting/mask editing
+--flux-fill-finetuned    # FLUX.1 Fill [pro] Finetune - Custom model inpainting
+--flux-expand            # FLUX.1 Expand [pro] - Image expansion/outpainting
+--kontext-pro            # Kontext Pro - Image editing
+--kontext-max            # Kontext Max - Premium editing
 ```
 
 ### Common Options
@@ -413,6 +431,20 @@ Choose one model:
 ```
 
 **Note:** Either `--mask` is required, OR `--image` must be a PNG with an alpha channel (transparency). JPG/JPEG images require an explicit `--mask` parameter.
+
+### FLUX.1 Fill [pro] Finetune Specific
+
+```bash
+--finetune-id <id>            # Fine-tuned model ID (required)
+--image <path>                # Input image to edit (required, file or URL)
+--mask <path>                 # Mask image defining edit region (required for JPG/JPEG)
+--finetune-strength <number>  # Model influence 0-2 (default: 1.1)
+--steps <number>              # 15-50 (default: 50)
+--guidance <number>           # 1.5-100 (default: 60)
+--prompt-upsampling           # Enable AI prompt enhancement
+```
+
+**Note:** Requires a fine-tuned model ID from your BFL account. Same masking rules as regular Fill apply.
 
 ### FLUX.1 Expand [pro] Specific
 
@@ -511,6 +543,26 @@ const task = await api.generateFluxProFill({
 ```
 
 **Note:** The `image` parameter is required. Either provide a `mask` parameter, or use a PNG image with an alpha channel (transparency) defining the edit region.
+
+#### `generateFluxProFillFinetuned(params)`
+
+Inpainting with fine-tuned FLUX.1 Fill [pro] model.
+
+```javascript
+const task = await api.generateFluxProFillFinetuned({
+  finetune_id: 'my-custom-model',       // Required
+  prompt: 'apply custom style',         // Optional (default: '')
+  image: 'base64_encoded_image',        // Required
+  mask: 'base64_encoded_mask',          // Required (or use PNG with alpha)
+  finetune_strength: 1.2,               // Optional (default: 1.1, range: 0-2)
+  steps: 35,
+  guidance: 60,
+  safety_tolerance: 2,
+  output_format: 'png'
+});
+```
+
+**Note:** Requires `finetune_id` from your BFL account. Same masking rules as regular Fill apply.
 
 #### `generateFluxProExpand(params)`
 
@@ -948,7 +1000,7 @@ npm run bfl:dev -- --prompt "a cat" --width 512 --height 512
 
 ### Testing Commands
 ```bash
-npm test                 # Run all 183 tests with Vitest
+npm test                 # Run all 189 tests with Vitest
 npm run test:watch       # Watch mode for development
 npm run test:ui          # Interactive UI in browser
 npm run test:coverage    # Generate coverage report (84.84% overall)
