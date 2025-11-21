@@ -29,6 +29,7 @@
 import { Command } from 'commander';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { readFileSync } from 'fs';
 import { BflAPI } from './api.js';
 import {
   imageToBase64,
@@ -45,6 +46,11 @@ import { getOutputDir } from './config.js';
 // ES module dirname equivalent
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Read version from package.json dynamically
+const { version } = JSON.parse(
+  readFileSync(path.join(__dirname, 'package.json'), 'utf8')
+);
 
 /**
  * Display usage examples.
@@ -697,7 +703,7 @@ async function main() {
   program
     .name('bfl')
     .description('Generate images using Black Forest Labs API')
-    .version('1.4.3');
+    .version(version);
 
   // Model selection (mutually exclusive)
   program

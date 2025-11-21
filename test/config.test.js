@@ -3,7 +3,7 @@
  * Tests for API configuration, endpoints, and constants
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import {
   BASE_URL,
   US_BASE_URL,
@@ -12,6 +12,7 @@ import {
   DEFAULT_POLL_INTERVAL,
   DEFAULT_TIMEOUT,
   MAX_RETRIES,
+  getBflApiKey,
   getOutputDir,
   getPollInterval,
   getTimeout,
@@ -87,6 +88,61 @@ describe('Configuration Constants', () => {
 });
 
 describe('Configuration Functions', () => {
+  describe('getBflApiKey', () => {
+    const originalEnvKey = process.env.BFL_API_KEY;
+
+    afterEach(() => {
+      // Restore original environment variable
+      if (originalEnvKey) {
+        process.env.BFL_API_KEY = originalEnvKey;
+      } else {
+        delete process.env.BFL_API_KEY;
+      }
+    });
+
+    it('should prioritize CLI flag over environment variable', () => {
+      process.env.BFL_API_KEY = 'env-key-12345';
+      const result = getBflApiKey('cli-key-67890');
+      expect(result).toBe('cli-key-67890');
+      expect(result).not.toBe('env-key-12345');
+    });
+
+    it('should fall back to environment variable when CLI flag is null', () => {
+      process.env.BFL_API_KEY = 'env-key-12345';
+      const result = getBflApiKey(null);
+      expect(result).toBe('env-key-12345');
+    });
+
+    it('should fall back to environment variable when CLI flag is undefined', () => {
+      process.env.BFL_API_KEY = 'env-key-12345';
+      const result = getBflApiKey();
+      expect(result).toBe('env-key-12345');
+    });
+
+    it('should throw error when no API key is available', () => {
+      delete process.env.BFL_API_KEY;
+      expect(() => getBflApiKey(null)).toThrow('BFL_API_KEY not found');
+    });
+
+    it('should throw error with helpful message when no API key is available', () => {
+      delete process.env.BFL_API_KEY;
+      expect(() => getBflApiKey()).toThrow('Get your API key at https://api.bfl.ml/');
+    });
+
+    it('should accept empty string CLI flag and fall back to env', () => {
+      process.env.BFL_API_KEY = 'env-key-12345';
+      const result = getBflApiKey('');
+      expect(result).toBe('env-key-12345');
+    });
+
+    it('should use CLI flag when both CLI and env are provided', () => {
+      process.env.BFL_API_KEY = 'env-key-12345';
+      const cliKey = 'cli-key-67890';
+      const result = getBflApiKey(cliKey);
+      expect(result).toBe(cliKey);
+    });
+  });
+
   describe('getOutputDir', () => {
     it('should return default output directory', () => {
       const dir = getOutputDir();

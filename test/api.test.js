@@ -1190,4 +1190,173 @@ describe('BflAPI Class', () => {
       ).rejects.toThrow();
     });
   });
+
+  describe('Error Handling - Additional Status Codes', () => {
+    it('should handle bad request errors (400)', async () => {
+      axios.post.mockRejectedValue({
+        response: {
+          status: 400,
+          data: { detail: 'Bad request - malformed parameters' }
+        },
+        message: 'Bad Request'
+      });
+
+      await expect(
+        api.generateFluxDev({ prompt: 'test' })
+      ).rejects.toThrow();
+    });
+
+    it('should handle forbidden errors (403)', async () => {
+      axios.post.mockRejectedValue({
+        response: {
+          status: 403,
+          data: { detail: 'Access forbidden - insufficient permissions' }
+        },
+        message: 'Forbidden'
+      });
+
+      await expect(
+        api.generateFluxDev({ prompt: 'test' })
+      ).rejects.toThrow();
+    });
+
+    it('should handle not found errors (404)', async () => {
+      axios.post.mockRejectedValue({
+        response: {
+          status: 404,
+          data: { detail: 'Endpoint not found' }
+        },
+        message: 'Not Found'
+      });
+
+      await expect(
+        api.generateFluxDev({ prompt: 'test' })
+      ).rejects.toThrow();
+    });
+
+    it('should handle internal server errors (500)', async () => {
+      axios.post.mockRejectedValue({
+        response: {
+          status: 500,
+          data: { detail: 'Internal server error' }
+        },
+        message: 'Internal Server Error'
+      });
+
+      await expect(
+        api.generateFluxDev({ prompt: 'test' })
+      ).rejects.toThrow();
+    });
+
+    it('should handle network errors without response', async () => {
+      axios.post.mockRejectedValue({
+        message: 'Network Error - ECONNREFUSED',
+        code: 'ECONNREFUSED'
+      });
+
+      await expect(
+        api.generateFluxDev({ prompt: 'test' })
+      ).rejects.toThrow();
+    });
+
+    it('should handle timeout errors', async () => {
+      axios.post.mockRejectedValue({
+        message: 'timeout of 30000ms exceeded',
+        code: 'ETIMEDOUT'
+      });
+
+      await expect(
+        api.generateFluxDev({ prompt: 'test' })
+      ).rejects.toThrow();
+    });
+
+    it('should handle DNS resolution errors', async () => {
+      axios.post.mockRejectedValue({
+        message: 'getaddrinfo ENOTFOUND api.bfl.ai',
+        code: 'ENOTFOUND'
+      });
+
+      await expect(
+        api.generateFluxDev({ prompt: 'test' })
+      ).rejects.toThrow();
+    });
+
+    it('should handle connection reset errors', async () => {
+      axios.post.mockRejectedValue({
+        message: 'socket hang up',
+        code: 'ECONNRESET'
+      });
+
+      await expect(
+        api.generateFluxDev({ prompt: 'test' })
+      ).rejects.toThrow();
+    });
+
+    it('should sanitize 400 errors in production', async () => {
+      const originalEnv = process.env.NODE_ENV;
+      process.env.NODE_ENV = 'production';
+
+      axios.post.mockRejectedValue({
+        response: {
+          status: 400,
+          data: { detail: 'Sensitive internal error details' }
+        },
+        message: 'Bad Request'
+      });
+
+      try {
+        await api.generateFluxDev({ prompt: 'test' });
+      } catch (error) {
+        // Should not contain sensitive details in production
+        expect(error.message).not.toContain('Sensitive internal');
+      }
+
+      process.env.NODE_ENV = originalEnv;
+    });
+
+    it('should sanitize 403 errors in production', async () => {
+      const originalEnv = process.env.NODE_ENV;
+      process.env.NODE_ENV = 'production';
+
+      axios.post.mockRejectedValue({
+        response: {
+          status: 403,
+          data: { detail: 'Detailed permission info' }
+        },
+        message: 'Forbidden'
+      });
+
+      try {
+        await api.generateFluxDev({ prompt: 'test' });
+      } catch (error) {
+        // Should not contain detailed info in production
+        expect(error.message).not.toContain('Detailed permission');
+      }
+
+      process.env.NODE_ENV = originalEnv;
+    });
+
+    it('should sanitize 500 errors in production', async () => {
+      const originalEnv = process.env.NODE_ENV;
+      process.env.NODE_ENV = 'production';
+
+      axios.post.mockRejectedValue({
+        response: {
+          status: 500,
+          data: { detail: 'Internal stack trace and sensitive data' }
+        },
+        message: 'Internal Server Error'
+      });
+
+      try {
+        await api.generateFluxDev({ prompt: 'test' });
+      } catch (error) {
+        // Should use generic message in production
+        expect(error.message).not.toContain('stack trace');
+        expect(error.message).not.toContain('sensitive data');
+      }
+
+      process.env.NODE_ENV = originalEnv;
+    });
+  });
 });
