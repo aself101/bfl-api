@@ -293,14 +293,22 @@ describe('Configuration Functions', () => {
       });
 
       it('should accept finetune_strength at boundaries and middle', () => {
+        // Test minimum boundary (inclusive)
         const zeroResult = validateModelParams('flux-pro-fill-finetuned', { finetune_strength: 0 });
         expect(zeroResult.valid).toBe(true);
 
+        // Test default/middle value
         const midResult = validateModelParams('flux-pro-fill-finetuned', { finetune_strength: 1.1 });
         expect(midResult.valid).toBe(true);
 
+        // Test maximum boundary (inclusive)
         const maxResult = validateModelParams('flux-pro-fill-finetuned', { finetune_strength: 2 });
         expect(maxResult.valid).toBe(true);
+
+        // Test just beyond maximum to verify > check (not >=)
+        const beyondMaxResult = validateModelParams('flux-pro-fill-finetuned', { finetune_strength: 2.0001 });
+        expect(beyondMaxResult.valid).toBe(false);
+        expect(beyondMaxResult.errors.some(e => e.includes('finetune_strength must be between 0 and 2'))).toBe(true);
       });
 
       it('should reject steps below minimum (15)', () => {

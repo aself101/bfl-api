@@ -7,6 +7,7 @@ import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vite
 import { BflAPI } from '../api.js';
 import { MODEL_ENDPOINTS, BASE_URL } from '../config.js';
 import axios from 'axios';
+import * as config from '../config.js';
 
 // Mock axios for all tests
 vi.mock('axios');
@@ -539,6 +540,29 @@ describe('BflAPI Class', () => {
   });
 
   describe('FLUX.1 Fill [pro] Finetune Generation', () => {
+    it('should throw error if API key is not set', async () => {
+      // Mock getBflApiKey to return empty string
+      const originalGetBflApiKey = config.getBflApiKey;
+      vi.spyOn(config, 'getBflApiKey').mockReturnValue('');
+
+      try {
+        const apiWithoutKey = new BflAPI({ apiKey: '', logLevel: 'NONE' });
+
+        await expect(async () => {
+          await apiWithoutKey.generateFluxProFillFinetuned({
+            finetune_id: 'my-model',
+            image: 'data:image/png;base64,abc123'
+          });
+        }).rejects.toThrow('API key not set');
+
+        // Verify axios.post was never called - fail fast before API call
+        expect(axios.post).not.toHaveBeenCalled();
+      } finally {
+        // Restore original function
+        config.getBflApiKey.mockRestore();
+      }
+    });
+
     it('should throw error if finetune_id is missing', async () => {
       await expect(async () => {
         await api.generateFluxProFillFinetuned({
@@ -546,6 +570,9 @@ describe('BflAPI Class', () => {
           prompt: 'Apply custom style'
         });
       }).rejects.toThrow('finetune_id is required for FLUX.1 Fill [pro] finetune');
+
+      // Verify axios.post was never called - fail fast before API call
+      expect(axios.post).not.toHaveBeenCalled();
     });
 
     it('should throw error if image is missing', async () => {
@@ -555,6 +582,9 @@ describe('BflAPI Class', () => {
           prompt: 'Apply custom style'
         });
       }).rejects.toThrow('image is required for FLUX.1 Fill [pro] finetune');
+
+      // Verify axios.post was never called - fail fast before API call
+      expect(axios.post).not.toHaveBeenCalled();
     });
 
     it('should generate image with finetune model', async () => {
@@ -667,6 +697,81 @@ describe('BflAPI Class', () => {
         }),
         expect.any(Object)
       );
+    });
+
+    it('should use exact endpoint for flux-pro-fill-finetuned', async () => {
+      const mockResponse = {
+        data: { id: 'task_123', status: 'Pending' }
+      };
+      axios.post.mockResolvedValue(mockResponse);
+
+      await api.generateFluxProFillFinetuned({
+        finetune_id: 'my-model',
+        image: 'data:image/png;base64,abc123'
+      });
+
+      // Verify exact endpoint is used, not flux-pro-fill or other variants
+      const callArgs = axios.post.mock.calls[0];
+      expect(callArgs[0]).toBe('https://api.bfl.ai/v1/flux-pro-1.0-fill-finetuned');
+    });
+
+    it('should handle API authentication errors (401)', async () => {
+      axios.post.mockRejectedValue({
+        response: { status: 401 },
+        message: 'Unauthorized'
+      });
+
+      await expect(async () => {
+        await api.generateFluxProFillFinetuned({
+          finetune_id: 'my-model',
+          image: 'data:image/png;base64,abc123'
+        });
+      }).rejects.toThrow();
+    });
+
+    it('should handle invalid parameter errors (422)', async () => {
+      axios.post.mockRejectedValue({
+        response: {
+          status: 422,
+          data: { detail: 'Invalid finetune_id' }
+        },
+        message: 'Unprocessable Entity'
+      });
+
+      await expect(async () => {
+        await api.generateFluxProFillFinetuned({
+          finetune_id: 'invalid-model',
+          image: 'data:image/png;base64,abc123'
+        });
+      }).rejects.toThrow();
+    });
+
+    it('should handle rate limiting errors (429)', async () => {
+      axios.post.mockRejectedValue({
+        response: { status: 429 },
+        message: 'Too Many Requests'
+      });
+
+      await expect(async () => {
+        await api.generateFluxProFillFinetuned({
+          finetune_id: 'my-model',
+          image: 'data:image/png;base64,abc123'
+        });
+      }).rejects.toThrow();
+    });
+
+    it('should handle server errors (502/503)', async () => {
+      axios.post.mockRejectedValue({
+        response: { status: 503 },
+        message: 'Service Unavailable'
+      });
+
+      await expect(async () => {
+        await api.generateFluxProFillFinetuned({
+          finetune_id: 'my-model',
+          image: 'data:image/png;base64,abc123'
+        });
+      }).rejects.toThrow();
     });
   });
 
