@@ -48,7 +48,9 @@ export const MODEL_ENDPOINTS = {
   'flux-pro-fill-finetuned': '/v1/flux-pro-1.0-fill-finetuned',
   'flux-pro-expand': '/v1/flux-pro-1.0-expand',
   'kontext-pro': '/v1/flux-kontext-pro',
-  'kontext-max': '/v1/flux-kontext-max'
+  'kontext-max': '/v1/flux-kontext-max',
+  'flux-2-pro': '/v1/flux-2-pro',
+  'flux-2-flex': '/v1/flux-2-flex'
 };
 
 // Model parameter constraints
@@ -104,6 +106,22 @@ export const MODEL_CONSTRAINTS = {
   'kontext-max': {
     aspectRatios: ['21:9', '16:9', '4:3', '1:1', '3:4', '9:16', '9:21'],
     promptMaxLength: 10000
+  },
+  'flux-2-pro': {
+    width: { min: 64, max: 2048, divisibleBy: 16 },
+    height: { min: 64, max: 2048, divisibleBy: 16 },
+    safetyTolerance: { min: 0, max: 5 },
+    outputFormats: ['jpeg', 'png'],
+    promptMaxLength: 10000,
+    maxInputImages: 8
+  },
+  'flux-2-flex': {
+    width: { min: 64, max: 2048, divisibleBy: 16 },
+    height: { min: 64, max: 2048, divisibleBy: 16 },
+    safetyTolerance: { min: 0, max: 5 },
+    outputFormats: ['jpeg', 'png'],
+    promptMaxLength: 10000,
+    maxInputImages: 8
   }
 };
 
@@ -333,6 +351,19 @@ export function validateModelParams(model, params) {
     const { min, max } = constraints.right;
     if (params.right < min || params.right > max) {
       errors.push(`right must be between ${min} and ${max} for ${model}`);
+    }
+  }
+
+  // Validate maxInputImages (FLUX.2 models)
+  if (constraints.maxInputImages) {
+    // Count input_image parameters (input_image, input_image_2, ..., input_image_8)
+    const imageKeys = Object.keys(params).filter(key =>
+      key === 'input_image' || key.match(/^input_image_[2-8]$/)
+    );
+    if (imageKeys.length > constraints.maxInputImages) {
+      errors.push(
+        `Maximum ${constraints.maxInputImages} input images allowed for ${model} (provided ${imageKeys.length})`
+      );
     }
   }
 

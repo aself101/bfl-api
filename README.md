@@ -3,7 +3,7 @@
 [![npm version](https://img.shields.io/npm/v/bfl-api.svg)](https://www.npmjs.com/package/bfl-api)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node.js Version](https://img.shields.io/node/v/bfl-api)](https://nodejs.org)
-[![Tests](https://img.shields.io/badge/tests-229%20passing-brightgreen)](test/)
+[![Tests](https://img.shields.io/badge/tests-271%20passing-brightgreen)](test/)
 [![Coverage](https://img.shields.io/badge/coverage-87.86%25-brightgreen)](test/)
 
 A Node.js wrapper for the [Black Forest Labs API](https://docs.bfl.ml/quick_start/introduction) that provides easy access to FLUX and Kontext image generation models. Generate stunning AI images with professional quality through a simple command-line interface.
@@ -65,7 +65,7 @@ console.log('Image URL:', result.result.sample);
 
 The Black Forest Labs API provides access to state-of-the-art image generation models. This Node.js service implements:
 
-- **8 Generation Models** - FLUX.1 [dev], FLUX 1.1 [pro], FLUX Ultra, FLUX.1 Fill [pro], FLUX.1 Fill [pro] Finetune, FLUX.1 Expand [pro], Kontext Pro, Kontext Max
+- **10 Generation Models** - FLUX.1 [dev], FLUX 1.1 [pro], FLUX Ultra, FLUX.1 Fill [pro], FLUX.1 Fill [pro] Finetune, FLUX.1 Expand [pro], FLUX.2 [PRO], FLUX.2 [FLEX], Kontext Pro, Kontext Max
 - **Production Security** - API key redaction, error sanitization, HTTPS enforcement, comprehensive SSRF protection (including IPv4-mapped IPv6 bypass prevention)
 - **DoS Prevention** - Request timeouts (30s API, 60s downloads), file size limits (50MB), redirect limits
 - **Parameter Validation** - Pre-flight validation catches invalid parameters before API calls
@@ -76,7 +76,7 @@ The Black Forest Labs API provides access to state-of-the-art image generation m
 - **Image Input Support** - Convert local files or URLs to base64 with validation
 - **Organized Storage** - Structured directories with timestamped files and metadata
 - **CLI Orchestration** - Command-line tool for easy batch generation
-- **Comprehensive Testing** - 229 tests with 87.86% coverage (api.js: 89.17%, utils.js: 83.5%, config.js: 94.56%)
+- **Comprehensive Testing** - 271 tests with 87.86% coverage (api.js: 89.17%, utils.js: 83.5%, config.js: 94.56%)
 
 ## Models
 
@@ -177,6 +177,30 @@ Maximum quality multi-reference image editing.
 **Parameters:**
 - `input_image` - Base image to edit (required, base64 or URL)
 - `reference_image_1`, `reference_image_2`, `reference_image_3` - Optional context images (base64 or URL)
+
+### FLUX.2 [PRO]
+Next-generation model with multi-image input support for contextual generation and editing.
+
+**Best for:** Advanced multi-image editing, contextual generation, combining multiple references
+
+**Parameters:**
+- `width`, `height` - Image dimensions (64-2048, divisible by 16)
+- `input_image` through `input_image_8` - Up to 8 input images for multi-reference (base64 or URL)
+- `prompt_upsampling` - AI prompt enhancement (default: true)
+- `safety_tolerance` - Content moderation level (0-5, default: 2)
+- `output_format` - Output format: 'jpeg' or 'png'
+
+### FLUX.2 [FLEX]
+Flexible next-generation model with experimental multi-reference support.
+
+**Best for:** Experimental multi-image workflows, flexible generation styles
+
+**Parameters:**
+- `width`, `height` - Image dimensions (64-2048, divisible by 16)
+- `input_image` through `input_image_8` - Up to 8 input images for experimental multiref (base64 or URL)
+- `prompt_upsampling` - AI prompt enhancement (default: true)
+- `safety_tolerance` - Content moderation level (0-5, default: 2)
+- `output_format` - Output format: 'jpeg' or 'png'
 
 ## Authentication Setup
 
@@ -373,6 +397,8 @@ Choose one model:
 --flux-fill              # FLUX.1 Fill [pro] - Inpainting/mask editing
 --flux-fill-finetuned    # FLUX.1 Fill [pro] Finetune - Custom model inpainting
 --flux-expand            # FLUX.1 Expand [pro] - Image expansion/outpainting
+--flux-2-pro             # FLUX.2 [PRO] - Multi-image generation/editing
+--flux-2-flex            # FLUX.2 [FLEX] - Experimental multi-reference
 --kontext-pro            # Kontext Pro - Image editing
 --kontext-max            # Kontext Max - Premium editing
 ```
@@ -469,6 +495,25 @@ Choose one model:
 --input-image-3 <path>        # Additional reference (optional)
 --input-image-4 <path>        # Additional reference (optional)
 ```
+
+### FLUX.2 Models Specific
+
+```bash
+--width <number>              # 64-2048, multiple of 16 (auto by default)
+--height <number>             # 64-2048, multiple of 16 (auto by default)
+--input-image <path>          # Primary input image (optional, file or URL)
+--input-image-2 <path>        # Additional reference (optional)
+--input-image-3 <path>        # Additional reference (optional)
+--input-image-4 <path>        # Additional reference (optional)
+--input-image-5 <path>        # Additional reference (experimental multiref)
+--input-image-6 <path>        # Additional reference (experimental multiref)
+--input-image-7 <path>        # Additional reference (experimental multiref)
+--input-image-8 <path>        # Additional reference (experimental multiref)
+--prompt-upsampling           # AI prompt enhancement (enabled by default for FLUX.2)
+--safety-tolerance <0-5>      # Content moderation level (default: 2)
+```
+
+**Note:** FLUX.2 models support up to 8 input images for advanced multi-reference generation. Dimensions must be divisible by 16 (not 32 like FLUX.1 models).
 
 ### Utility Commands
 
@@ -607,6 +652,47 @@ const task = await api.generateKontextMax({
   prompt: 'enhance colors and details',
   input_image: 'base64_or_url',      // Required
   input_image_2: 'base64_or_url'     // Optional
+});
+```
+
+#### `generateFlux2Pro(params)`
+
+Generate or edit image using FLUX.2 [PRO] with multi-image support.
+
+```javascript
+// Text-to-image generation
+const task = await api.generateFlux2Pro({
+  prompt: 'A majestic castle on a cliff',
+  width: 1024,
+  height: 1024
+});
+
+// Image editing with context
+const task = await api.generateFlux2Pro({
+  prompt: 'Add a dragon flying above',
+  input_image: 'base64_or_url',
+  input_image_2: 'base64_or_url'  // Optional additional context
+});
+```
+
+#### `generateFlux2Flex(params)`
+
+Generate or edit image using FLUX.2 [FLEX] with experimental multi-reference.
+
+```javascript
+// Text-to-image generation
+const task = await api.generateFlux2Flex({
+  prompt: 'A serene Japanese garden',
+  width: 1024,
+  height: 768
+});
+
+// Multi-reference generation (up to 8 images)
+const task = await api.generateFlux2Flex({
+  prompt: 'Combine all elements',
+  input_image: 'base64_or_url',
+  input_image_2: 'base64_or_url',
+  input_image_3: 'base64_or_url'
 });
 ```
 
@@ -796,6 +882,44 @@ const result = await api.waitForResult(task.id, {
 console.log('Generated image:', result.result.sample);
 ```
 
+### Example 9: FLUX.2 [PRO] Text-to-Image
+
+```bash
+bfl --flux-2-pro \
+  --prompt "a majestic castle on a cliff at sunset" \
+  --width 1024 --height 1024
+```
+
+### Example 10: FLUX.2 [PRO] Image Editing
+
+```bash
+bfl --flux-2-pro \
+  --prompt "add a dragon flying in the sky" \
+  --input-image ./castle.jpg \
+  --width 1024 --height 1024
+```
+
+### Example 11: FLUX.2 [FLEX] Multi-Reference
+
+```bash
+bfl --flux-2-flex \
+  --prompt "combine the subject and style" \
+  --input-image ./subject.jpg \
+  --input-image-2 ./style_reference.jpg
+```
+
+### Example 12: FLUX.2 [FLEX] Experimental Multiref (Up to 8 Images)
+
+```bash
+bfl --flux-2-flex \
+  --prompt "create a scene combining all elements" \
+  --input-image ./img1.jpg \
+  --input-image-2 ./img2.jpg \
+  --input-image-3 ./img3.jpg \
+  --input-image-4 ./img4.jpg \
+  --input-image-5 ./img5.jpg
+```
+
 ## Data Organization
 
 Generated images and metadata are organized by model:
@@ -812,6 +936,10 @@ datasets/
     ├── flux-ultra/
     │   └── ...
     ├── flux-pro-fill/
+    │   └── ...
+    ├── flux-2-pro/
+    │   └── ...
+    ├── flux-2-flex/
     │   └── ...
     ├── kontext-pro/
     │   └── ...
@@ -1019,7 +1147,7 @@ npm run bfl:dev -- --prompt "a cat" --width 512 --height 512
 
 ### Testing Commands
 ```bash
-npm test                 # Run all 229 tests with Vitest
+npm test                 # Run all 271 tests with Vitest
 npm run test:watch       # Watch mode for development
 npm run test:ui          # Interactive UI in browser
 npm run test:coverage    # Generate coverage report (87.86% overall)
@@ -1032,7 +1160,7 @@ npm run test:coverage    # Generate coverage report (87.86% overall)
 - config.js: 94.56% lines (parameter validation, configuration)
 
 Tests validate actual behavior including:
-- All 7 generation methods with proper request/response handling
+- All 10 generation methods with proper request/response handling
 - Comprehensive polling logic with timeout, retry, and exponential backoff
 - Image conversion pipeline (file → base64, URL → base64)
 - File I/O operations (read, write, directories)

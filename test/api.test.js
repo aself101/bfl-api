@@ -43,9 +43,9 @@ describe('BflAPI Class', () => {
       expect(BASE_URL.startsWith('https://')).toBe(true);
     });
 
-    it('should have all 8 model endpoints', () => {
+    it('should have all 10 model endpoints', () => {
       expect(MODEL_ENDPOINTS).toBeDefined();
-      expect(Object.keys(MODEL_ENDPOINTS)).toHaveLength(8);
+      expect(Object.keys(MODEL_ENDPOINTS)).toHaveLength(10);
     });
 
     it('should have valid endpoint paths', () => {
@@ -55,7 +55,7 @@ describe('BflAPI Class', () => {
     });
 
     it('should have expected models', () => {
-      const expectedModels = ['flux-dev', 'flux-pro', 'flux-ultra', 'flux-pro-fill', 'kontext-pro', 'kontext-max'];
+      const expectedModels = ['flux-dev', 'flux-pro', 'flux-ultra', 'flux-pro-fill', 'kontext-pro', 'kontext-max', 'flux-2-pro', 'flux-2-flex'];
       expectedModels.forEach(model => {
         expect(MODEL_ENDPOINTS[model]).toBeDefined();
       });
@@ -872,6 +872,332 @@ describe('BflAPI Class', () => {
         }),
         expect.any(Object)
       );
+    });
+  });
+
+  describe('FLUX.2 [PRO] Generation', () => {
+    it('should generate image with FLUX.2 [PRO] model', async () => {
+      const mockResponse = {
+        data: {
+          id: 'task_flux2_pro_123',
+          polling_url: 'https://api.bfl.ai/v1/get_result?id=task_flux2_pro_123',
+          cost: 5.0,
+          input_mp: 1.05,
+          output_mp: 1.05
+        }
+      };
+      axios.post.mockResolvedValue(mockResponse);
+
+      const result = await api.generateFlux2Pro({
+        prompt: 'a majestic castle on a cliff',
+        width: 1024,
+        height: 1024
+      });
+
+      expect(axios.post).toHaveBeenCalledWith(
+        expect.stringContaining('/v1/flux-2-pro'),
+        expect.objectContaining({
+          prompt: 'a majestic castle on a cliff',
+          width: 1024,
+          height: 1024,
+          prompt_upsampling: true  // default
+        }),
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            'x-key': 'test_api_key_for_unit_tests'
+          })
+        })
+      );
+
+      expect(result.id).toBe('task_flux2_pro_123');
+      expect(result.cost).toBe(5.0);
+      expect(result.input_mp).toBe(1.05);
+      expect(result.output_mp).toBe(1.05);
+    });
+
+    it('should use prompt_upsampling true as default', async () => {
+      const mockResponse = { data: { id: 'task_123', polling_url: '' } };
+      axios.post.mockResolvedValue(mockResponse);
+
+      await api.generateFlux2Pro({ prompt: 'test prompt' });
+
+      expect(axios.post).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          prompt_upsampling: true
+        }),
+        expect.any(Object)
+      );
+    });
+
+    it('should allow overriding prompt_upsampling to false', async () => {
+      const mockResponse = { data: { id: 'task_123', polling_url: '' } };
+      axios.post.mockResolvedValue(mockResponse);
+
+      await api.generateFlux2Pro({
+        prompt: 'test prompt',
+        prompt_upsampling: false
+      });
+
+      expect(axios.post).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          prompt_upsampling: false
+        }),
+        expect.any(Object)
+      );
+    });
+
+    it('should handle multi-image input (up to 8 images)', async () => {
+      const mockResponse = { data: { id: 'task_123', polling_url: '' } };
+      axios.post.mockResolvedValue(mockResponse);
+
+      await api.generateFlux2Pro({
+        prompt: 'combine elements from all images',
+        input_image: 'data:image/png;base64,img1',
+        input_image_2: 'data:image/png;base64,img2',
+        input_image_3: 'data:image/png;base64,img3',
+        input_image_4: 'data:image/png;base64,img4',
+        input_image_5: 'data:image/png;base64,img5',
+        input_image_6: 'data:image/png;base64,img6',
+        input_image_7: 'data:image/png;base64,img7',
+        input_image_8: 'data:image/png;base64,img8'
+      });
+
+      expect(axios.post).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          input_image: 'data:image/png;base64,img1',
+          input_image_2: 'data:image/png;base64,img2',
+          input_image_3: 'data:image/png;base64,img3',
+          input_image_4: 'data:image/png;base64,img4',
+          input_image_5: 'data:image/png;base64,img5',
+          input_image_6: 'data:image/png;base64,img6',
+          input_image_7: 'data:image/png;base64,img7',
+          input_image_8: 'data:image/png;base64,img8'
+        }),
+        expect.any(Object)
+      );
+    });
+
+    it('should include optional parameters when provided', async () => {
+      const mockResponse = { data: { id: 'task_123', polling_url: '' } };
+      axios.post.mockResolvedValue(mockResponse);
+
+      await api.generateFlux2Pro({
+        prompt: 'test',
+        seed: 42,
+        safety_tolerance: 3,
+        output_format: 'png'
+      });
+
+      expect(axios.post).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          seed: 42,
+          safety_tolerance: 3,
+          output_format: 'png'
+        }),
+        expect.any(Object)
+      );
+    });
+
+    it('should handle API errors correctly', async () => {
+      axios.post.mockRejectedValue({
+        response: { status: 422, data: { detail: 'Invalid parameters' } },
+        message: 'Request failed'
+      });
+
+      await expect(
+        api.generateFlux2Pro({ prompt: 'test' })
+      ).rejects.toThrow();
+    });
+
+    it('should work with zero input images (text-to-image mode)', async () => {
+      const mockResponse = { data: { id: 'task_123', polling_url: '' } };
+      axios.post.mockResolvedValue(mockResponse);
+
+      await api.generateFlux2Pro({
+        prompt: 'a beautiful landscape',
+        width: 1024,
+        height: 768
+      });
+
+      const payload = axios.post.mock.calls[0][1];
+
+      // Should not have any input_image keys
+      expect(payload.input_image).toBeUndefined();
+      expect(Object.keys(payload).filter(k => k.startsWith('input_image'))).toHaveLength(0);
+    });
+
+    it('should work with partial image count (3 images)', async () => {
+      const mockResponse = { data: { id: 'task_123', polling_url: '' } };
+      axios.post.mockResolvedValue(mockResponse);
+
+      await api.generateFlux2Pro({
+        prompt: 'combine these elements',
+        input_image: 'data:image/png;base64,img1',
+        input_image_2: 'data:image/png;base64,img2',
+        input_image_3: 'data:image/png;base64,img3'
+      });
+
+      const payload = axios.post.mock.calls[0][1];
+
+      // Should have exactly 3 input images
+      expect(payload.input_image).toBe('data:image/png;base64,img1');
+      expect(payload.input_image_2).toBe('data:image/png;base64,img2');
+      expect(payload.input_image_3).toBe('data:image/png;base64,img3');
+      expect(payload.input_image_4).toBeUndefined();
+    });
+
+    it('should include all parameters when provided', async () => {
+      const mockResponse = { data: { id: 'task_123', polling_url: '' } };
+      axios.post.mockResolvedValue(mockResponse);
+
+      await api.generateFlux2Pro({
+        prompt: 'test with all params',
+        width: 1024,
+        height: 768,
+        seed: 12345,
+        safety_tolerance: 2,
+        output_format: 'png',
+        prompt_upsampling: false,
+        input_image: 'data:image/png;base64,img1'
+      });
+
+      expect(axios.post).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          prompt: 'test with all params',
+          width: 1024,
+          height: 768,
+          seed: 12345,
+          safety_tolerance: 2,
+          output_format: 'png',
+          prompt_upsampling: false,
+          input_image: 'data:image/png;base64,img1'
+        }),
+        expect.any(Object)
+      );
+    });
+  });
+
+  describe('FLUX.2 [FLEX] Generation', () => {
+    it('should generate image with FLUX.2 [FLEX] model', async () => {
+      const mockResponse = {
+        data: {
+          id: 'task_flux2_flex_123',
+          polling_url: 'https://api.bfl.ai/v1/get_result?id=task_flux2_flex_123',
+          cost: 3.0,
+          input_mp: 0.79,
+          output_mp: 0.79
+        }
+      };
+      axios.post.mockResolvedValue(mockResponse);
+
+      const result = await api.generateFlux2Flex({
+        prompt: 'a serene Japanese garden',
+        width: 1024,
+        height: 768
+      });
+
+      expect(axios.post).toHaveBeenCalledWith(
+        expect.stringContaining('/v1/flux-2-flex'),
+        expect.objectContaining({
+          prompt: 'a serene Japanese garden',
+          width: 1024,
+          height: 768,
+          prompt_upsampling: true  // default
+        }),
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            'x-key': 'test_api_key_for_unit_tests'
+          })
+        })
+      );
+
+      expect(result.id).toBe('task_flux2_flex_123');
+      expect(result.cost).toBe(3.0);
+    });
+
+    it('should use prompt_upsampling true as default', async () => {
+      const mockResponse = { data: { id: 'task_123', polling_url: '' } };
+      axios.post.mockResolvedValue(mockResponse);
+
+      await api.generateFlux2Flex({ prompt: 'test prompt' });
+
+      expect(axios.post).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          prompt_upsampling: true
+        }),
+        expect.any(Object)
+      );
+    });
+
+    it('should handle multi-reference editing with multiple images', async () => {
+      const mockResponse = { data: { id: 'task_123', polling_url: '' } };
+      axios.post.mockResolvedValue(mockResponse);
+
+      await api.generateFlux2Flex({
+        prompt: 'combine the style and subject',
+        input_image: 'data:image/png;base64,subject',
+        input_image_2: 'data:image/png;base64,style_ref'
+      });
+
+      expect(axios.post).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          input_image: 'data:image/png;base64,subject',
+          input_image_2: 'data:image/png;base64,style_ref'
+        }),
+        expect.any(Object)
+      );
+    });
+
+    it('should support experimental multiref (images 5-8)', async () => {
+      const mockResponse = { data: { id: 'task_123', polling_url: '' } };
+      axios.post.mockResolvedValue(mockResponse);
+
+      await api.generateFlux2Flex({
+        prompt: 'create from multiple references',
+        input_image_5: 'data:image/png;base64,experimental1',
+        input_image_6: 'data:image/png;base64,experimental2'
+      });
+
+      expect(axios.post).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          input_image_5: 'data:image/png;base64,experimental1',
+          input_image_6: 'data:image/png;base64,experimental2'
+        }),
+        expect.any(Object)
+      );
+    });
+
+    it('should not require input_image (text-to-image mode)', async () => {
+      const mockResponse = { data: { id: 'task_123', polling_url: '' } };
+      axios.post.mockResolvedValue(mockResponse);
+
+      // Should not throw - input_image is optional for text-to-image
+      await api.generateFlux2Flex({
+        prompt: 'a beautiful landscape',
+        width: 1024,
+        height: 768
+      });
+
+      expect(axios.post).toHaveBeenCalled();
+    });
+
+    it('should handle API errors correctly', async () => {
+      axios.post.mockRejectedValue({
+        response: { status: 401, data: { detail: 'Invalid API key' } },
+        message: 'Unauthorized'
+      });
+
+      await expect(
+        api.generateFlux2Flex({ prompt: 'test' })
+      ).rejects.toThrow('Authentication failed');
     });
   });
 

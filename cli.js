@@ -4,7 +4,7 @@
  * BFL Image Generation - Main CLI Script
  *
  * Command-line tool for generating images using Black Forest Labs API.
- * Supports batch processing with multiple prompts and all 7 BFL models.
+ * Supports batch processing with multiple prompts and all 10 BFL models.
  *
  * Usage:
  *   bfl --flux-dev --prompt "a cat" --width 1024 --height 768
@@ -24,6 +24,8 @@
  *   --flux-expand      FLUX.1 Expand [pro] - Expand/outpaint images
  *   --kontext-pro      Kontext Pro - Multi-reference image editing
  *   --kontext-max      Kontext Max - Maximum quality editing
+ *   --flux-2-pro       FLUX.2 [PRO] - Generate/edit with multi-image support
+ *   --flux-2-flex      FLUX.2 [FLEX] - Generate/edit with multi-image support
  */
 
 import { Command } from 'commander';
@@ -190,6 +192,32 @@ ${'='.repeat(60)}
 20. Poll existing task
     $ npm run bfl -- --get-result abc123def456
 
+21. FLUX.2 [PRO] - Text-to-image generation
+    $ npm run bfl -- --flux-2-pro \\
+        --prompt "a majestic castle on a cliff at sunset" \\
+        --width 1024 --height 1024
+
+22. FLUX.2 [PRO] - Image editing with context
+    $ npm run bfl -- --flux-2-pro \\
+        --prompt "add a dragon flying in the sky" \\
+        --input-image ./castle.jpg \\
+        --width 1024 --height 1024
+
+23. FLUX.2 [FLEX] - Multi-reference generation
+    $ npm run bfl -- --flux-2-flex \\
+        --prompt "combine the subject and style" \\
+        --input-image ./subject.jpg \\
+        --input-image-2 ./style_reference.jpg
+
+24. FLUX.2 [FLEX] - Experimental multiref (up to 8 images)
+    $ npm run bfl -- --flux-2-flex \\
+        --prompt "create a scene combining all elements" \\
+        --input-image ./img1.jpg \\
+        --input-image-2 ./img2.jpg \\
+        --input-image-3 ./img3.jpg \\
+        --input-image-4 ./img4.jpg \\
+        --input-image-5 ./img5.jpg
+
 AUTHENTICATION OPTIONS:
 
 A. CLI flag (highest priority)
@@ -226,6 +254,8 @@ function getSelectedModel(options) {
   if (options.fluxExpand) return 'flux-pro-expand';
   if (options.kontextPro) return 'kontext-pro';
   if (options.kontextMax) return 'kontext-max';
+  if (options.flux_2Pro || options.flux2Pro) return 'flux-2-pro';
+  if (options.flux_2Flex || options.flux2Flex) return 'flux-2-flex';
   return null;
 }
 
@@ -310,6 +340,21 @@ function buildFluxProExpandParams(params, options) {
 }
 
 /**
+ * Build parameters for FLUX.2 [PRO] and FLUX.2 [FLEX] models.
+ *
+ * @param {Object} params - Base parameters object
+ * @param {Object} options - Command options
+ */
+function buildFlux2Params(params, options) {
+  if (options.width) params.width = options.width;
+  if (options.height) params.height = options.height;
+  // prompt_upsampling defaults to true for FLUX.2 models
+  if (options.promptUpsampling !== undefined) {
+    params.prompt_upsampling = options.promptUpsampling;
+  }
+}
+
+/**
  * Add common parameters shared across all models.
  *
  * @param {Object} params - Parameters object to modify
@@ -322,6 +367,24 @@ function addCommonParams(params, options) {
 }
 
 /**
+ * Image input mappings for converting CLI options to API parameters.
+ * @private
+ */
+const IMAGE_INPUT_MAPPINGS = [
+  { option: 'imagePrompt', param: 'image_prompt', label: 'image prompt' },
+  { option: 'image', param: 'image', label: 'image' },
+  { option: 'mask', param: 'mask', label: 'mask' },
+  { option: 'inputImage', param: 'input_image', label: 'input image' },
+  { option: 'inputImage2', param: 'input_image_2', label: 'input image 2' },
+  { option: 'inputImage3', param: 'input_image_3', label: 'input image 3' },
+  { option: 'inputImage4', param: 'input_image_4', label: 'input image 4' },
+  { option: 'inputImage5', param: 'input_image_5', label: 'input image 5' },
+  { option: 'inputImage6', param: 'input_image_6', label: 'input image 6' },
+  { option: 'inputImage7', param: 'input_image_7', label: 'input image 7' },
+  { option: 'inputImage8', param: 'input_image_8', label: 'input image 8' }
+];
+
+/**
  * Convert image inputs to base64 and add to parameters.
  *
  * @param {Object} params - Parameters object to modify
@@ -329,39 +392,11 @@ function addCommonParams(params, options) {
  * @returns {Promise<void>}
  */
 async function addImageInputs(params, options) {
-  if (options.imagePrompt) {
-    logger.info('Converting image prompt to base64...');
-    params.image_prompt = await imageToBase64(options.imagePrompt);
-  }
-
-  if (options.image) {
-    logger.info('Converting image to base64...');
-    params.image = await imageToBase64(options.image);
-  }
-
-  if (options.mask) {
-    logger.info('Converting mask to base64...');
-    params.mask = await imageToBase64(options.mask);
-  }
-
-  if (options.inputImage) {
-    logger.info('Converting input image to base64...');
-    params.input_image = await imageToBase64(options.inputImage);
-  }
-
-  if (options.inputImage2) {
-    logger.info('Converting input image 2 to base64...');
-    params.input_image_2 = await imageToBase64(options.inputImage2);
-  }
-
-  if (options.inputImage3) {
-    logger.info('Converting input image 3 to base64...');
-    params.input_image_3 = await imageToBase64(options.inputImage3);
-  }
-
-  if (options.inputImage4) {
-    logger.info('Converting input image 4 to base64...');
-    params.input_image_4 = await imageToBase64(options.inputImage4);
+  for (const { option, param, label } of IMAGE_INPUT_MAPPINGS) {
+    if (options[option]) {
+      logger.info(`Converting ${label} to base64...`);
+      params[param] = await imageToBase64(options[option]);
+    }
   }
 }
 
@@ -408,6 +443,8 @@ async function generateImage(api, model, prompt, options, index, total) {
       buildFluxProFillFinetunedParams(params, options);
     } else if (model === 'flux-pro-expand') {
       buildFluxProExpandParams(params, options);
+    } else if (model === 'flux-2-pro' || model === 'flux-2-flex') {
+      buildFlux2Params(params, options);
     }
     // Note: Kontext models don't have additional parameters beyond common ones
 
@@ -419,27 +456,27 @@ async function generateImage(api, model, prompt, options, index, total) {
       return { success: true, dryRun: true };
     }
 
+    // Model method mapping for dispatch
+    const modelMethods = {
+      'flux-dev': 'generateFluxDev',
+      'flux-pro': 'generateFluxPro',
+      'flux-ultra': 'generateFluxProUltra',
+      'flux-pro-fill': 'generateFluxProFill',
+      'flux-pro-fill-finetuned': 'generateFluxProFillFinetuned',
+      'flux-pro-expand': 'generateFluxProExpand',
+      'kontext-pro': 'generateKontextPro',
+      'kontext-max': 'generateKontextMax',
+      'flux-2-pro': 'generateFlux2Pro',
+      'flux-2-flex': 'generateFlux2Flex'
+    };
+
     // Submit generation request
     logger.info('Submitting generation request...');
-    let task;
-
-    if (model === 'flux-dev') {
-      task = await api.generateFluxDev(params);
-    } else if (model === 'flux-pro') {
-      task = await api.generateFluxPro(params);
-    } else if (model === 'flux-ultra') {
-      task = await api.generateFluxProUltra(params);
-    } else if (model === 'flux-pro-fill') {
-      task = await api.generateFluxProFill(params);
-    } else if (model === 'flux-pro-fill-finetuned') {
-      task = await api.generateFluxProFillFinetuned(params);
-    } else if (model === 'flux-pro-expand') {
-      task = await api.generateFluxProExpand(params);
-    } else if (model === 'kontext-pro') {
-      task = await api.generateKontextPro(params);
-    } else if (model === 'kontext-max') {
-      task = await api.generateKontextMax(params);
+    const methodName = modelMethods[model];
+    if (!methodName) {
+      throw new Error(`Unknown model: ${model}`);
     }
+    const task = await api[methodName](params);
 
     logger.info(`Task submitted: ${task.id}`);
     logger.info(`Polling URL: ${task.polling_url || 'N/A'}`);
@@ -689,6 +726,35 @@ function validateParameters(model, options) {
     }
   }
 
+  // Validate FLUX.2 models (PRO and FLEX)
+  if (model === 'flux-2-pro' || model === 'flux-2-flex') {
+    // Validate dimensions (64-2048, multiple of 16)
+    if (options.width !== undefined) {
+      if (options.width < 64 || options.width > 2048) {
+        errors.push('Width must be between 64 and 2048 for FLUX.2 models');
+      }
+      if (options.width % 16 !== 0) {
+        errors.push('Width must be a multiple of 16 for FLUX.2 models');
+      }
+    }
+
+    if (options.height !== undefined) {
+      if (options.height < 64 || options.height > 2048) {
+        errors.push('Height must be between 64 and 2048 for FLUX.2 models');
+      }
+      if (options.height % 16 !== 0) {
+        errors.push('Height must be a multiple of 16 for FLUX.2 models');
+      }
+    }
+
+    // Validate safety tolerance (0-5 for FLUX.2)
+    if (options.safetyTolerance !== undefined) {
+      if (options.safetyTolerance < 0 || options.safetyTolerance > 5) {
+        errors.push('Safety tolerance must be between 0 and 5 for FLUX.2 models');
+      }
+    }
+  }
+
   if (errors.length > 0) {
     throw new Error(`Parameter validation failed:\n  - ${errors.join('\n  - ')}`);
   }
@@ -714,7 +780,9 @@ async function main() {
     .option('--flux-fill-finetuned', 'Use FLUX.1 Fill [pro] with fine-tuned model (custom model inpainting)')
     .option('--flux-expand', 'Use FLUX.1 Expand [pro] model (expand/outpaint images)')
     .option('--kontext-pro', 'Use Kontext Pro model (multi-reference editing)')
-    .option('--kontext-max', 'Use Kontext Max model (maximum quality editing)');
+    .option('--kontext-max', 'Use Kontext Max model (maximum quality editing)')
+    .option('--flux-2-pro', 'Use FLUX.2 [PRO] model (generate/edit with multi-image)')
+    .option('--flux-2-flex', 'Use FLUX.2 [FLEX] model (generate/edit with multi-image)');
 
   // Common parameters
   program
@@ -745,7 +813,11 @@ async function main() {
     .option('--input-image <path>', 'Primary input image for Kontext (file path or URL)')
     .option('--input-image-2 <path>', 'Additional reference image for Kontext')
     .option('--input-image-3 <path>', 'Additional reference image for Kontext')
-    .option('--input-image-4 <path>', 'Additional reference image for Kontext');
+    .option('--input-image-4 <path>', 'Additional reference image for Kontext')
+    .option('--input-image-5 <path>', 'Additional reference image (FLUX.2 experimental multiref)')
+    .option('--input-image-6 <path>', 'Additional reference image (FLUX.2 experimental multiref)')
+    .option('--input-image-7 <path>', 'Additional reference image (FLUX.2 experimental multiref)')
+    .option('--input-image-8 <path>', 'Additional reference image (FLUX.2 experimental multiref)');
 
   // FLUX.1 Expand [pro] specific
   program

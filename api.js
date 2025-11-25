@@ -208,6 +208,21 @@ export class BflAPI {
     }
   }
 
+  /**
+   * Submit generation request with standardized error handling.
+   * @private
+   */
+  async _submitGeneration(modelKey, modelLabel, payload) {
+    try {
+      const result = await this._makeRequest('POST', MODEL_ENDPOINTS[modelKey], payload);
+      this.logger.info(`${modelLabel} generation submitted: ${result.id}`);
+      return result;
+    } catch (error) {
+      this.logger.error(`Error generating with ${modelLabel}: ${error.message}`);
+      throw error;
+    }
+  }
+
   // ==================== FLUX.1 [dev] ====================
 
   /**
@@ -250,14 +265,7 @@ export class BflAPI {
       ...(params.prompt_upsampling !== undefined && { prompt_upsampling: params.prompt_upsampling })
     };
 
-    try {
-      const result = await this._makeRequest('POST', MODEL_ENDPOINTS['flux-dev'], payload);
-      this.logger.info(`FLUX.1 [dev] generation submitted: ${result.id}`);
-      return result;
-    } catch (error) {
-      this.logger.error(`Error generating with FLUX.1 [dev]: ${error.message}`);
-      throw error;
-    }
+    return this._submitGeneration('flux-dev', 'FLUX.1 [dev]', payload);
   }
 
   // ==================== FLUX 1.1 [pro] ====================
@@ -299,14 +307,7 @@ export class BflAPI {
       ...(params.prompt_upsampling !== undefined && { prompt_upsampling: params.prompt_upsampling })
     };
 
-    try {
-      const result = await this._makeRequest('POST', MODEL_ENDPOINTS['flux-pro'], payload);
-      this.logger.info(`FLUX 1.1 [pro] generation submitted: ${result.id}`);
-      return result;
-    } catch (error) {
-      this.logger.error(`Error generating with FLUX 1.1 [pro]: ${error.message}`);
-      throw error;
-    }
+    return this._submitGeneration('flux-pro', 'FLUX 1.1 [pro]', payload);
   }
 
   // ==================== FLUX 1.1 [pro] Ultra ====================
@@ -347,14 +348,7 @@ export class BflAPI {
       ...(params.output_format && { output_format: params.output_format })
     };
 
-    try {
-      const result = await this._makeRequest('POST', MODEL_ENDPOINTS['flux-ultra'], payload);
-      this.logger.info(`FLUX 1.1 [pro] Ultra generation submitted: ${result.id}`);
-      return result;
-    } catch (error) {
-      this.logger.error(`Error generating with FLUX 1.1 [pro] Ultra: ${error.message}`);
-      throw error;
-    }
+    return this._submitGeneration('flux-ultra', 'FLUX 1.1 [pro] Ultra', payload);
   }
 
   // ==================== FLUX.1 Fill [pro] ====================
@@ -407,14 +401,7 @@ export class BflAPI {
       ...(params.prompt_upsampling !== undefined && { prompt_upsampling: params.prompt_upsampling })
     };
 
-    try {
-      const result = await this._makeRequest('POST', MODEL_ENDPOINTS['flux-pro-fill'], payload);
-      this.logger.info(`FLUX.1 Fill [pro] generation submitted: ${result.id}`);
-      return result;
-    } catch (error) {
-      this.logger.error(`Error generating with FLUX.1 Fill [pro]: ${error.message}`);
-      throw error;
-    }
+    return this._submitGeneration('flux-pro-fill', 'FLUX.1 Fill [pro]', payload);
   }
 
   /**
@@ -470,14 +457,7 @@ export class BflAPI {
       ...(params.prompt_upsampling !== undefined && { prompt_upsampling: params.prompt_upsampling })
     };
 
-    try {
-      const result = await this._makeRequest('POST', MODEL_ENDPOINTS['flux-pro-fill-finetuned'], payload);
-      this.logger.info(`FLUX.1 Fill [pro] finetune generation submitted: ${result.id}`);
-      return result;
-    } catch (error) {
-      this.logger.error(`Error generating with FLUX.1 Fill [pro] finetune: ${error.message}`);
-      throw error;
-    }
+    return this._submitGeneration('flux-pro-fill-finetuned', 'FLUX.1 Fill [pro] finetune', payload);
   }
 
   /**
@@ -531,14 +511,7 @@ export class BflAPI {
       ...(params.prompt_upsampling !== undefined && { prompt_upsampling: params.prompt_upsampling })
     };
 
-    try {
-      const result = await this._makeRequest('POST', MODEL_ENDPOINTS['flux-pro-expand'], payload);
-      this.logger.info(`FLUX.1 Expand [pro] generation submitted: ${result.id}`);
-      return result;
-    } catch (error) {
-      this.logger.error(`Error generating with FLUX.1 Expand [pro]: ${error.message}`);
-      throw error;
-    }
+    return this._submitGeneration('flux-pro-expand', 'FLUX.1 Expand [pro]', payload);
   }
 
   // ==================== Kontext Pro ====================
@@ -582,14 +555,7 @@ export class BflAPI {
       ...(params.output_format && { output_format: params.output_format })
     };
 
-    try {
-      const result = await this._makeRequest('POST', MODEL_ENDPOINTS['kontext-pro'], payload);
-      this.logger.info(`Kontext Pro generation submitted: ${result.id}`);
-      return result;
-    } catch (error) {
-      this.logger.error(`Error generating with Kontext Pro: ${error.message}`);
-      throw error;
-    }
+    return this._submitGeneration('kontext-pro', 'Kontext Pro', payload);
   }
 
   // ==================== Kontext Max ====================
@@ -633,14 +599,120 @@ export class BflAPI {
       ...(params.output_format && { output_format: params.output_format })
     };
 
-    try {
-      const result = await this._makeRequest('POST', MODEL_ENDPOINTS['kontext-max'], payload);
-      this.logger.info(`Kontext Max generation submitted: ${result.id}`);
-      return result;
-    } catch (error) {
-      this.logger.error(`Error generating with Kontext Max: ${error.message}`);
-      throw error;
-    }
+    return this._submitGeneration('kontext-max', 'Kontext Max', payload);
+  }
+
+  // ==================== FLUX.2 MODELS ====================
+
+  /**
+   * Internal helper for FLUX.2 generation (shared by PRO and FLEX).
+   * @private
+   */
+  async _generateFlux2(modelKey, modelLabel, params) {
+    this._verifyApiKey();
+
+    const payload = {
+      prompt: params.prompt,
+      ...(params.prompt_upsampling !== undefined ? { prompt_upsampling: params.prompt_upsampling } : { prompt_upsampling: true }),
+      ...(params.width !== undefined && { width: params.width }),
+      ...(params.height !== undefined && { height: params.height }),
+      ...(params.input_image && { input_image: params.input_image }),
+      ...(params.input_image_2 && { input_image_2: params.input_image_2 }),
+      ...(params.input_image_3 && { input_image_3: params.input_image_3 }),
+      ...(params.input_image_4 && { input_image_4: params.input_image_4 }),
+      ...(params.input_image_5 && { input_image_5: params.input_image_5 }),
+      ...(params.input_image_6 && { input_image_6: params.input_image_6 }),
+      ...(params.input_image_7 && { input_image_7: params.input_image_7 }),
+      ...(params.input_image_8 && { input_image_8: params.input_image_8 }),
+      ...(params.seed !== undefined && { seed: params.seed }),
+      ...(params.safety_tolerance !== undefined && { safety_tolerance: params.safety_tolerance }),
+      ...(params.output_format && { output_format: params.output_format })
+    };
+
+    return this._submitGeneration(modelKey, modelLabel, payload);
+  }
+
+  /**
+   * Generate or edit image using FLUX.2 [PRO] model.
+   * Supports multi-image input for contextual generation and editing.
+   *
+   * @param {Object} params - Generation parameters
+   * @param {string} params.prompt - Text description of desired image (required)
+   * @param {number} params.width - Image width (64-2048, multiple of 16, default: 0 for auto)
+   * @param {number} params.height - Image height (64-2048, multiple of 16, default: 0 for auto)
+   * @param {string} params.input_image - Primary input image as base64 or URL (optional)
+   * @param {string} params.input_image_2 - Additional input image (optional)
+   * @param {string} params.input_image_3 - Additional input image (optional)
+   * @param {string} params.input_image_4 - Additional input image (optional)
+   * @param {string} params.input_image_5 - Additional input image (experimental multiref)
+   * @param {string} params.input_image_6 - Additional input image (experimental multiref)
+   * @param {string} params.input_image_7 - Additional input image (experimental multiref)
+   * @param {string} params.input_image_8 - Additional input image (experimental multiref)
+   * @param {number} params.seed - Random seed for reproducibility (optional)
+   * @param {number} params.safety_tolerance - Content moderation level (0-5, default: 2)
+   * @param {string} params.output_format - Output format: 'jpeg' or 'png' (default: 'jpeg')
+   * @param {boolean} params.prompt_upsampling - Enable AI prompt enhancement (default: true)
+   * @returns {Promise<Object>} Task object with id, polling_url, cost, input_mp, output_mp
+   *
+   * @example
+   * // Text-to-image generation
+   * const task = await api.generateFlux2Pro({
+   *   prompt: 'A majestic castle on a cliff',
+   *   width: 1024,
+   *   height: 1024
+   * });
+   *
+   * @example
+   * // Image editing with context
+   * const task = await api.generateFlux2Pro({
+   *   prompt: 'Add a dragon flying above the castle',
+   *   input_image: 'base64_or_url_of_castle_image'
+   * });
+   */
+  async generateFlux2Pro(params) {
+    return this._generateFlux2('flux-2-pro', 'FLUX.2 [PRO]', params);
+  }
+
+  /**
+   * Generate or edit image using FLUX.2 [FLEX] model.
+   * Supports multi-image input for contextual generation and editing.
+   *
+   * @param {Object} params - Generation parameters
+   * @param {string} params.prompt - Text description of desired image (required)
+   * @param {number} params.width - Image width (64-2048, multiple of 16, default: 0 for auto)
+   * @param {number} params.height - Image height (64-2048, multiple of 16, default: 0 for auto)
+   * @param {string} params.input_image - Primary input image as base64 or URL (optional)
+   * @param {string} params.input_image_2 - Additional input image (optional)
+   * @param {string} params.input_image_3 - Additional input image (optional)
+   * @param {string} params.input_image_4 - Additional input image (optional)
+   * @param {string} params.input_image_5 - Additional input image (experimental multiref)
+   * @param {string} params.input_image_6 - Additional input image (experimental multiref)
+   * @param {string} params.input_image_7 - Additional input image (experimental multiref)
+   * @param {string} params.input_image_8 - Additional input image (experimental multiref)
+   * @param {number} params.seed - Random seed for reproducibility (optional)
+   * @param {number} params.safety_tolerance - Content moderation level (0-5, default: 2)
+   * @param {string} params.output_format - Output format: 'jpeg' or 'png' (default: 'jpeg')
+   * @param {boolean} params.prompt_upsampling - Enable AI prompt enhancement (default: true)
+   * @returns {Promise<Object>} Task object with id, polling_url, cost, input_mp, output_mp
+   *
+   * @example
+   * // Text-to-image generation
+   * const task = await api.generateFlux2Flex({
+   *   prompt: 'A serene Japanese garden',
+   *   width: 1024,
+   *   height: 768
+   * });
+   *
+   * @example
+   * // Image editing with multiple references
+   * const task = await api.generateFlux2Flex({
+   *   prompt: 'Combine the style and subject',
+   *   input_image: 'base64_or_url_of_subject',
+   *   input_image_2: 'base64_or_url_of_style_ref'
+   * });
+   */
+  async generateFlux2Flex(params) {
+    return this._generateFlux2('flux-2-flex', 'FLUX.2 [FLEX]', params);
   }
 
   // ==================== UTILITY METHODS ====================
