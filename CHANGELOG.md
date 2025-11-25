@@ -1,3 +1,10 @@
+# [1.6.0](https://github.com/aself101/bfl-api/compare/v1.5.0...v1.6.0) (2025-11-25)
+
+
+### Features
+
+* **api:** add FLUX.2 [PRO] and FLUX.2 [FLEX] model support ([ff0c99e](https://github.com/aself101/bfl-api/commit/ff0c99e6787ed83643486b3261a3cdaecfc27646))
+
 # [1.5.0](https://github.com/aself101/bfl-api/compare/v1.4.3...v1.5.0) (2025-11-21)
 
 
