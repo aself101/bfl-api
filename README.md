@@ -3,10 +3,11 @@
 [![npm version](https://img.shields.io/npm/v/bfl-api.svg)](https://www.npmjs.com/package/bfl-api)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node.js Version](https://img.shields.io/node/v/bfl-api)](https://nodejs.org)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-blue.svg)](https://www.typescriptlang.org/)
 [![Tests](https://img.shields.io/badge/tests-271%20passing-brightgreen)](test/)
-[![Coverage](https://img.shields.io/badge/coverage-87.86%25-brightgreen)](test/)
+[![Coverage](https://img.shields.io/badge/coverage-89.58%25-brightgreen)](test/)
 
-A Node.js wrapper for the [Black Forest Labs API](https://docs.bfl.ml/quick_start/introduction) that provides easy access to FLUX and Kontext image generation models. Generate stunning AI images with professional quality through a simple command-line interface.
+A TypeScript/Node.js wrapper for the [Black Forest Labs API](https://docs.bfl.ml/quick_start/introduction) that provides easy access to FLUX and Kontext image generation models. Generate stunning AI images with professional quality through a simple command-line interface.
 
 This service follows the data-collection architecture pattern with organized data storage, automatic polling, retry logic, comprehensive logging, and CLI orchestration.
 
@@ -30,7 +31,7 @@ bfl --flux-dev --prompt "a serene mountain landscape"
 ```
 
 ### Programmatic Usage
-```javascript
+```typescript
 import { BflAPI } from 'bfl-api';
 
 const api = new BflAPI();
@@ -46,12 +47,15 @@ const result = await api.waitForResult(task.id);
 console.log('Image URL:', result.result.sample);
 ```
 
+Full TypeScript support with exported types for all parameters and responses.
+
 ## Table of Contents
 
 - [Overview](#overview)
 - [Models](#models)
 - [Authentication Setup](#authentication-setup)
 - [Installation](#installation)
+- [TypeScript Support](#typescript-support)
 - [Quick Start](#quick-start)
 - [CLI Usage](#cli-usage)
 - [API Methods](#api-methods)
@@ -76,7 +80,8 @@ The Black Forest Labs API provides access to state-of-the-art image generation m
 - **Image Input Support** - Convert local files or URLs to base64 with validation
 - **Organized Storage** - Structured directories with timestamped files and metadata
 - **CLI Orchestration** - Command-line tool for easy batch generation
-- **Comprehensive Testing** - 271 tests with 87.86% coverage (api.js: 89.17%, utils.js: 83.5%, config.js: 94.56%)
+- **Full TypeScript Support** - Complete type definitions for all API methods, parameters, and responses
+- **Comprehensive Testing** - 271 tests with 89.58% coverage (api.ts: 94.76%, utils.ts: 82.71%, config.ts: 95.87%)
 
 ## Models
 
@@ -291,6 +296,71 @@ Dependencies:
 - `dotenv` - Environment variable management
 - `winston` - Logging framework
 
+## TypeScript Support
+
+This package is written in TypeScript and includes full type definitions. All API methods, parameters, and responses are fully typed.
+
+### Exported Types
+
+```typescript
+import {
+  BflAPI,
+  // Parameter types
+  FluxDevParams,
+  FluxProParams,
+  FluxProUltraParams,
+  FluxProFillParams,
+  FluxProExpandParams,
+  KontextProParams,
+  KontextMaxParams,
+  Flux2Params,
+  // Response types
+  TaskResult,
+  CreditsResult,
+  // Config types
+  BflApiOptions
+} from 'bfl-api';
+
+// Types are automatically inferred
+const api = new BflAPI();
+const task = await api.generateFluxDev({
+  prompt: 'a cat',  // TypeScript will validate all parameters
+  width: 1024,
+  height: 768
+});
+```
+
+### Type-Safe Parameters
+
+All generation methods have strict parameter typing:
+
+```typescript
+// TypeScript will catch invalid parameters at compile time
+const task = await api.generateFluxDev({
+  prompt: 'a landscape',
+  width: 1024,
+  height: 768,
+  steps: 28,        // number (1-50)
+  guidance: 3,      // number (1.5-5)
+  seed: 42,         // optional number
+  output_format: 'png'  // 'jpeg' | 'png'
+});
+```
+
+### Building from Source
+
+```bash
+# Install dependencies
+npm install
+
+# Build TypeScript to JavaScript
+npm run build
+
+# Output is in dist/
+ls dist/
+# api.js, api.d.ts, cli.js, cli.d.ts, config.js, config.d.ts, utils.js, utils.d.ts
+```
+
 ## Quick Start
 
 ### Using the CLI
@@ -347,12 +417,12 @@ bfl --credits
 
 ### Using the API Class Directly
 
-```javascript
+```typescript
 // If installed via npm
 import { BflAPI } from 'bfl-api';
 
 // If running from source
-import { BflAPI } from './api.js';
+import { BflAPI } from './src/api.js';
 
 // Initialize the API
 const api = new BflAPI();
@@ -853,14 +923,14 @@ bfl --flux-expand \
 
 ### Example 8: Using API Class in Code
 
-```javascript
+```typescript
 // If installed via npm
 import { BflAPI } from 'bfl-api';
 import { imageToBase64 } from 'bfl-api/utils';
 
 // If running from source
-import { BflAPI } from './api.js';
-import { imageToBase64 } from './utils.js';
+import { BflAPI } from './src/api.js';
+import { imageToBase64 } from './src/utils.js';
 
 const api = new BflAPI();
 
@@ -1150,14 +1220,14 @@ npm run bfl:dev -- --prompt "a cat" --width 512 --height 512
 npm test                 # Run all 271 tests with Vitest
 npm run test:watch       # Watch mode for development
 npm run test:ui          # Interactive UI in browser
-npm run test:coverage    # Generate coverage report (87.86% overall)
+npm run test:coverage    # Generate coverage report (89.58% overall)
 ```
 
 **Test Coverage:**
-- Overall: 87.86% lines, 89.18% branches
-- api.js: 89.17% lines (all generation methods, polling, retries)
-- utils.js: 83.5% lines (file I/O, image conversion, validation)
-- config.js: 94.56% lines (parameter validation, configuration)
+- Overall: 89.58% lines, 90.19% branches
+- api.ts: 94.76% lines (all generation methods, polling, retries)
+- utils.ts: 82.71% lines (file I/O, image conversion, validation)
+- config.ts: 95.87% lines (parameter validation, configuration)
 
 Tests validate actual behavior including:
 - All 10 generation methods with proper request/response handling

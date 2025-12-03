@@ -2,41 +2,54 @@
   "name": "bfl-api",
   "version": "1.6.0",
   "description": "Black Forest Labs API wrapper - FLUX and Kontext image generation for Node.js with CLI",
-  "main": "api.js",
+  "main": "dist/api.js",
+  "types": "dist/api.d.ts",
   "type": "module",
   "bin": {
-    "bfl": "cli.js"
+    "bfl": "dist/cli.js"
   },
   "exports": {
-    ".": "./api.js",
-    "./api": "./api.js",
-    "./utils": "./utils.js",
-    "./config": "./config.js"
+    ".": {
+      "import": "./dist/api.js",
+      "types": "./dist/api.d.ts"
+    },
+    "./api": {
+      "import": "./dist/api.js",
+      "types": "./dist/api.d.ts"
+    },
+    "./utils": {
+      "import": "./dist/utils.js",
+      "types": "./dist/utils.d.ts"
+    },
+    "./config": {
+      "import": "./dist/config.js",
+      "types": "./dist/config.d.ts"
+    }
   },
   "files": [
-    "api.js",
-    "cli.js",
-    "utils.js",
-    "config.js",
+    "dist",
     "README.md",
     "LICENSE"
   ],
   "scripts": {
-    "bfl": "node cli.js",
-    "bfl:help": "node cli.js --help",
-    "bfl:examples": "node cli.js --examples",
-    "bfl:credits": "node cli.js --credits",
-    "bfl:dev": "node cli.js --flux-dev",
-    "bfl:pro": "node cli.js --flux-pro",
-    "bfl:ultra": "node cli.js --flux-ultra",
-    "bfl:fill": "node cli.js --flux-fill",
-    "bfl:expand": "node cli.js --flux-expand",
-    "bfl:kontext-pro": "node cli.js --kontext-pro",
-    "bfl:kontext-max": "node cli.js --kontext-max",
+    "build": "tsc",
+    "dev": "tsx src/cli.ts",
+    "bfl": "tsx src/cli.ts",
+    "bfl:help": "tsx src/cli.ts --help",
+    "bfl:examples": "tsx src/cli.ts --examples",
+    "bfl:credits": "tsx src/cli.ts --credits",
+    "bfl:dev": "tsx src/cli.ts --flux-dev",
+    "bfl:pro": "tsx src/cli.ts --flux-pro",
+    "bfl:ultra": "tsx src/cli.ts --flux-ultra",
+    "bfl:fill": "tsx src/cli.ts --flux-fill",
+    "bfl:expand": "tsx src/cli.ts --flux-expand",
+    "bfl:kontext-pro": "tsx src/cli.ts --kontext-pro",
+    "bfl:kontext-max": "tsx src/cli.ts --kontext-max",
     "test": "vitest run",
     "test:watch": "vitest watch",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest run --coverage",
+    "prepublishOnly": "npm run build",
     "semantic-release": "semantic-release"
   },
   "keywords": [
@@ -51,7 +64,8 @@
     "ai-image",
     "text-to-image",
     "image-to-image",
-    "cli"
+    "cli",
+    "typescript"
   ],
   "author": "img-gen Contributors",
   "license": "MIT",
@@ -79,8 +93,11 @@
     "@semantic-release/github": "^11.0.6",
     "@semantic-release/npm": "^12.0.2",
     "@semantic-release/release-notes-generator": "^14.1.0",
+    "@types/node": "^24.10.1",
     "@vitest/coverage-v8": "^4.0.10",
     "semantic-release": "^24.2.9",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
     "vitest": "^4.0.10"
   }
 }

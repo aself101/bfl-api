@@ -1,26 +1,26 @@
+# Note: package.json "files" field takes precedence
+# This file is a fallback - only dist/, README.md, LICENSE are published
+
+# Source TypeScript files (compiled to dist/)
+src/
+
 # Test files
 test/
-*.test.js
+*.test.ts
+vitest.config.ts
 coverage/
 .nyc_output/
 
-
+# Config files
 tsconfig.json
-jest.config.js
 .releaserc.json
-.eslintrc.js
-.prettierrc
 
 # Development files
 .env
 .env.*
-.env.example
-vitest.config.js
 
 # Output directories
 datasets/
-test-output/
-test-api-output/
 
 # Logs
 *.log
@@ -42,14 +42,9 @@ Thumbs.db
 .gitignore
 .github/
 
-# IDE
-.vscode/
-
-# Documentation (keep README.md, LICENSE, CHANGELOG.md)
+# Documentation (README.md and LICENSE are in package.json files)
 docs/
+CLAUDE.md
 
-# Build artifacts
+# Dependencies (never published)
 node_modules/
-
-# release
-.releaserc.json
