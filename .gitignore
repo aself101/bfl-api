@@ -51,10 +51,10 @@ Desktop.ini
 tmp/
 temp/
 *.tmp
+.dx-test/
 
-# Build outputs (if applicable in future)
+# Build outputs (compiled TypeScript)
 dist/
-build/
 
 # Vitest
 .vitest/
