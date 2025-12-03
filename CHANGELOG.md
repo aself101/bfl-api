@@ -1,3 +1,10 @@
+# [1.7.0](https://github.com/aself101/bfl-api/compare/v1.6.0...v1.7.0) (2025-12-03)
+
+
+### Features
+
+* **typescript:** migrate entire codebase from JavaScript to TypeScript ([6eca848](https://github.com/aself101/bfl-api/commit/6eca84890a4712eab9053a7721a097808cd40779))
+
 # [1.6.0](https://github.com/aself101/bfl-api/compare/v1.5.0...v1.6.0) (2025-11-25)
 
 
