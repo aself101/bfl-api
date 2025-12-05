@@ -180,58 +180,58 @@ BFL IMAGE GENERATION - USAGE EXAMPLES
 ${'='.repeat(60)}
 
 1. FLUX.1 [dev] - Basic text-to-image
-   $ npm run bfl -- --flux-dev \\
+   $ bfl --flux-dev \\
        --prompt "a serene mountain landscape at sunset" \\
        --width 1024 --height 768 \\
        --steps 28 --guidance 3
 
 2. FLUX.1 [dev] - High detail with more steps
-   $ npm run bfl -- --flux-dev \\
+   $ bfl --flux-dev \\
        --prompt "photorealistic portrait of an astronaut" \\
        --width 1024 --height 1024 \\
        --steps 50 --guidance 4 \\
        --seed 42
 
 3. FLUX 1.1 [pro] - Professional quality
-   $ npm run bfl -- --flux-pro \\
+   $ bfl --flux-pro \\
        --prompt "modern minimalist interior design" \\
        --width 1024 --height 768 \\
        --prompt-upsampling
 
 4. FLUX 1.1 [pro] - Redux image-to-image
-   $ npm run bfl -- --flux-pro \\
+   $ bfl --flux-pro \\
        --prompt "same style but at night with city lights" \\
        --image-prompt ./reference.jpg \\
        --width 1024 --height 1024
 
 5. FLUX 1.1 [pro] Ultra - Cinematic wide format
-   $ npm run bfl -- --flux-ultra \\
+   $ bfl --flux-ultra \\
        --prompt "epic cinematic landscape, golden hour" \\
        --aspect-ratio "21:9" \\
        --raw
 
 6. FLUX Ultra - Image remixing with strength control
-   $ npm run bfl -- --flux-ultra \\
+   $ bfl --flux-ultra \\
        --prompt "transform into oil painting style" \\
        --image-prompt ./photo.jpg \\
        --image-prompt-strength 0.5 \\
        --aspect-ratio "16:9"
 
 7. FLUX.1 Fill [pro] - Inpainting with mask
-   $ npm run bfl -- --flux-fill \\
+   $ bfl --flux-fill \\
        --prompt "fill with lush green grass and flowers" \\
        --image ./photo.jpg \\
        --mask ./mask.png \\
        --steps 30 --guidance 5
 
 8. FLUX.1 Fill [pro] - Auto-mask inpainting
-   $ npm run bfl -- --flux-fill \\
+   $ bfl --flux-fill \\
        --prompt "replace the sky with sunset colors" \\
        --image ./landscape.jpg \\
        --steps 25
 
 9. FLUX.1 Fill [pro] Finetune - Custom model inpainting
-   $ npm run bfl -- --flux-fill-finetuned \\
+   $ bfl --flux-fill-finetuned \\
        --finetune-id "my-custom-model" \\
        --prompt "apply my custom style to the masked area" \\
        --image ./photo.jpg \\
@@ -240,93 +240,91 @@ ${'='.repeat(60)}
        --steps 35 --guidance 60
 
 10. FLUX.1 Expand [pro] - Extend image on all sides
-    $ npm run bfl -- --flux-expand \\
+    $ bfl --flux-expand \\
         --prompt "extend with dramatic clouds and mountain vista" \\
         --image ./photo.jpg \\
         --top 512 --bottom 256 --left 256 --right 256 \\
         --steps 30 --guidance 60
 
 11. FLUX.1 Expand [pro] - Vertical expansion
-    $ npm run bfl -- --flux-expand \\
+    $ bfl --flux-expand \\
         --prompt "add sky with clouds above and ground below" \\
         --image ./portrait.jpg \\
         --top 1024 --bottom 512 \\
         --steps 40
 
 12. Kontext Pro - Image editing
-    $ npm run bfl -- --kontext-pro \\
+    $ bfl --kontext-pro \\
         --prompt "make it look like winter, add snow" \\
         --input-image ./summer_photo.jpg
 
 13. Kontext Pro - Multi-reference editing
-    $ npm run bfl -- --kontext-pro \\
+    $ bfl --kontext-pro \\
         --prompt "combine the style from image 2 with subject from image 1" \\
         --input-image ./subject.jpg \\
         --input-image-2 ./style_reference.jpg
 
 14. Kontext Max - Premium quality editing
-    $ npm run bfl -- --kontext-max \\
+    $ bfl --kontext-max \\
         --prompt "enhance colors, increase contrast, professional grade" \\
         --input-image ./photo.jpg \\
         --output-format png
 
 15. Batch generation - Multiple prompts
-    $ npm run bfl -- --flux-dev \\
+    $ bfl --flux-dev \\
         --prompt "a red sports car" \\
         --prompt "a blue vintage car" \\
         --prompt "a green electric car" \\
         --seed 42 --width 1024 --height 768
 
-15. Batch with different seeds for variation
-    $ npm run bfl -- --flux-ultra \\
+16. Batch with different seeds for variation
+    $ bfl --flux-ultra \\
         --prompt "abstract art, vibrant colors" \\
         --prompt "abstract art, vibrant colors" \\
         --prompt "abstract art, vibrant colors" \\
         --aspect-ratio "1:1"
     # Each will generate differently without seed
 
-16. Custom output directory
-    $ npm run bfl -- --flux-dev \\
+17. Custom output directory
+    $ bfl --flux-dev \\
         --prompt "logo design for tech startup" \\
         --output-dir ./my-generations \\
         --output-format png
 
-17. Dry run to preview parameters
-    $ npm run bfl -- --flux-ultra \\
+18. Dry run to preview parameters
+    $ bfl --flux-ultra \\
         --prompt "test prompt" \\
         --aspect-ratio "21:9" --raw \\
         --dry-run
 
-18. Check account credits
-    $ npm run bfl:credits
-    # or
-    $ npm run bfl -- --credits
+19. Check account credits
+    $ bfl --credits
 
-19. List your fine-tuned models
-    $ npm run bfl -- --list-finetunes
+20. List your fine-tuned models
+    $ bfl --list-finetunes
 
-20. Poll existing task
-    $ npm run bfl -- --get-result abc123def456
+21. Poll existing task
+    $ bfl --get-result abc123def456
 
-21. FLUX.2 [PRO] - Text-to-image generation
-    $ npm run bfl -- --flux-2-pro \\
+22. FLUX.2 [PRO] - Text-to-image generation
+    $ bfl --flux-2-pro \\
         --prompt "a majestic castle on a cliff at sunset" \\
         --width 1024 --height 1024
 
-22. FLUX.2 [PRO] - Image editing with context
-    $ npm run bfl -- --flux-2-pro \\
+23. FLUX.2 [PRO] - Image editing with context
+    $ bfl --flux-2-pro \\
         --prompt "add a dragon flying in the sky" \\
         --input-image ./castle.jpg \\
         --width 1024 --height 1024
 
-23. FLUX.2 [FLEX] - Multi-reference generation
-    $ npm run bfl -- --flux-2-flex \\
+24. FLUX.2 [FLEX] - Multi-reference generation
+    $ bfl --flux-2-flex \\
         --prompt "combine the subject and style" \\
         --input-image ./subject.jpg \\
         --input-image-2 ./style_reference.jpg
 
-24. FLUX.2 [FLEX] - Experimental multiref (up to 8 images)
-    $ npm run bfl -- --flux-2-flex \\
+25. FLUX.2 [FLEX] - Experimental multiref (up to 8 images)
+    $ bfl --flux-2-flex \\
         --prompt "create a scene combining all elements" \\
         --input-image ./img1.jpg \\
         --input-image-2 ./img2.jpg \\
