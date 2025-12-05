@@ -1,3 +1,10 @@
+## [1.7.1](https://github.com/aself101/bfl-api/compare/v1.7.0...v1.7.1) (2025-12-05)
+
+
+### Bug Fixes
+
+* **cli:** update examples to use bfl command directly ([a74bc02](https://github.com/aself101/bfl-api/commit/a74bc02661462bad2bb5bbd66d750fe8c3812842)), closes [#15s](https://github.com/aself101/bfl-api/issues/15s)
+
 # [1.7.0](https://github.com/aself101/bfl-api/compare/v1.6.0...v1.7.0) (2025-12-03)
 
 
