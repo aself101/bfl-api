@@ -84,6 +84,11 @@ Design rationale in `docs/DECISIONS.md`.
 - `webp` no longer rejected client-side while the server accepts it.
 - 502/503 with `Retry-After` on the polling URL waits the requested interval
   instead of the fixed backoff.
+- `getResult(id)` without a polling URL now explains the 404 the global host
+  returns for a regionally-served task instead of echoing "HTTP 404". The CLI
+  writes `polling_url` into every metadata file and `--get-result` takes
+  `--polling-url` (found live: a task submitted via `api.bfl.ai` was served
+  from `api.eu2.bfl.ai`).
 
 
 ## [1.7.1](https://github.com/aself101/bfl-api/compare/v1.7.0...v1.7.1) (2025-12-05)

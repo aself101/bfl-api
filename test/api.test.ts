@@ -1506,6 +1506,27 @@ describe('BflAPI Class', () => {
     });
   });
 
+  describe('Get Result - regional hosts', () => {
+    it('explains a 404 on the global host as a regional-task problem', async () => {
+      const err = new Error('Request failed with status code 404') as Error & { response: { status: number; data: unknown; headers: Record<string, string> } };
+      err.response = { status: 404, data: {}, headers: {} };
+      mockedAxios.get.mockRejectedValue(err);
+
+      await expect(api.getResult('abc123')).rejects.toThrow(
+        'Task abc123 not found at https://api.bfl.ai. Tasks are served from the regional host'
+      );
+    });
+
+    it('uses the polling URL verbatim when given', async () => {
+      mockedAxios.get.mockResolvedValue({ data: { id: 'abc123', status: 'Ready', result: { sample: 'u' } } });
+      await api.getResult('abc123', 'https://api.eu2.bfl.ai/v1/get_result?id=abc123');
+      expect(mockedAxios.get).toHaveBeenCalledWith(
+        'https://api.eu2.bfl.ai/v1/get_result?id=abc123',
+        expect.objectContaining({ headers: expect.objectContaining({ 'x-key': 'test_api_key_for_unit_tests' }) })
+      );
+    });
+  });
+
   describe('Get User Credits', () => {
     it('should fetch user credits from API', async () => {
       const mockResponse = {

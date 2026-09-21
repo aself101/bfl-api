@@ -948,11 +948,12 @@ export class BflAPI {
    * Polls the task once and returns current status.
    *
    * @param taskId - Task ID to poll
-   * @param pollingUrl - Optional full polling URL (if not provided, constructs default)
+   * @param pollingUrl - The polling_url from the submit response. Tasks are regional; without
+   *   it the global host is tried, which returns 404 for tasks served elsewhere.
    * @returns Task result object
    *
    * @example
-   * const result = await api.getResult('abc123');
+   * const result = await api.getResult(task.id, task.polling_url);
    * if (result.status === 'Ready') {
    *   console.log('Image URL:', result.result.sample);
    * }
@@ -973,8 +974,21 @@ export class BflAPI {
         const response = await axios.get<TaskResult>(pollingUrl, { headers });
         result = response.data;
       } else {
-        // Fallback to constructing URL
-        result = await this._makeRequest<TaskResult>('GET', `/v1/get_result?id=${taskId}`);
+        // Fallback to constructing URL. Tasks are served from the regional host
+        // named in the submit response's polling_url; the global host 404s for
+        // a task that lives elsewhere, so explain that rather than echo "404".
+        try {
+          result = await this._makeRequest<TaskResult>('GET', `/v1/get_result?id=${taskId}`);
+        } catch (error) {
+          if (error instanceof BflHttpError && error.status === 404) {
+            throw new BflHttpError(
+              `Task ${taskId} not found at ${this.baseUrl}. Tasks are served from the regional host in the ` +
+                'submit response (polling_url); pass that URL to getResult/waitForResult.',
+              404
+            );
+          }
+          throw error;
+        }
       }
 
       this.logger.debug(`Polled task ${taskId}: ${result.status}`);

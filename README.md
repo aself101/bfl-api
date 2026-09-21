@@ -193,7 +193,7 @@ through):
 exact payload with base64 elided), `--log-level`, `--api-key`.
 
 **Utilities:** `--credits`, `--list-finetunes`, `--finetune-details <id>`,
-`--delete-finetune <id> --yes`, `--get-result <task id>`, `--examples`, `--help`.
+`--delete-finetune <id> --yes`, `--get-result <task id> [--polling-url <url>]`, `--examples`, `--help`.
 
 Ranges are validated before the request is sent (`bfl --flux-2-flex --guidance 11 …` fails locally,
 not after a round trip). `bfl --examples` prints one worked command per model.
@@ -218,7 +218,9 @@ const result = await api.waitForResult(task.id, {
 // result.status === 'Ready'; result.result.sample is the media URL
 ```
 
-`getResult(taskId, pollingUrl?)` polls once. `getUserCredits()`, `getMyFinetunes()`,
+`getResult(taskId, pollingUrl?)` polls once. Pass the `polling_url` from the submit response: tasks
+are served from a regional host (`api.eu2.bfl.ai`, …) and the global host returns 404 for a task
+that lives elsewhere. The CLI writes `polling_url` into each metadata file for this reason. `getUserCredits()`, `getMyFinetunes()`,
 `getFinetuneDetails(id)` and `deleteFinetune(id)` cover the account endpoints.
 
 Fields you don't set are not sent, so the server's defaults apply. Only the fields each endpoint's
@@ -285,6 +287,7 @@ format: `.mp4` for video; otherwise `--output-format`, or the model's server def
 ```json
 {
   "task_id": "abc123",
+  "polling_url": "https://api.eu2.bfl.ai/v1/get_result?id=abc123",
   "model": "flux-erase",
   "timestamp": "2026-09-20T14:30:22Z",
   "parameters": { "image": "<base64 41208 chars>", "mask": "<base64 3320 chars>", "dilate_pixels": 12 },
@@ -381,7 +384,9 @@ Publishing is manual: bump `version` in `package.json`, add a CHANGELOG entry, `
   fields. Use `--dry-run` to see the exact payload; only the fields listed for that mode are valid.
 - **`Content was moderated` / `Request was moderated`** — revise the prompt or inputs; these are not
   retried. Video tolerates less (`safety_tolerance` ≤4) than images.
-- **`Task not found`** — the id is wrong or the task expired; results are retained ~1 hour.
+- **`Task not found` / 404 from `--get-result`** — tasks are regional; pass the `polling_url` from
+  the submit response or the metadata file (`--polling-url`). Otherwise the id is wrong or the task
+  expired; results are retained ~1 hour.
 - **Timeout** — video renders can take several minutes; the CLI defaults to 900 s for video, or
   pass `--timeout`.
 - **Kontext output saved as `.jpg` in 1.x** — it was PNG data with the wrong extension; 2.0

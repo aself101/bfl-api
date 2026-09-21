@@ -153,6 +153,7 @@ interface CliOptions {
   deleteFinetune?: string;
   yes?: boolean;
   getResult?: string;
+  pollingUrl?: string;
   timeout?: number;
   outputDir?: string;
   logLevel: string;
@@ -352,8 +353,8 @@ ${'='.repeat(60)}
     $ bfl --finetune-details my-custom-model
     $ bfl --delete-finetune my-custom-model --yes
 
-31. Poll existing task
-    $ bfl --get-result abc123def456
+31. Poll existing task (tasks are regional — pass the polling_url from the metadata file)
+    $ bfl --get-result abc123def456 --polling-url https://api.eu2.bfl.ai/v1/get_result?id=abc123def456
 
 AUTHENTICATION OPTIONS:
 
@@ -838,6 +839,7 @@ async function generate(
     const metadataPath = path.join(modelDir, metadataFilename);
     const metadata = {
       task_id: task.id,
+      polling_url: task.polling_url,
       model: model,
       timestamp: new Date().toISOString(),
       parameters: JSON.parse(summarizeParams(params)) as Record<string, unknown>,
@@ -1047,6 +1049,7 @@ async function main(): Promise<void> {
     .option('--delete-finetune <id>', 'Delete a finetune (requires --yes)')
     .option('--yes', 'Confirm a destructive action')
     .option('--get-result <id>', 'Poll specific task ID for result')
+    .option('--polling-url <url>', 'Regional polling URL from the submit response / metadata (with --get-result)')
     .option('--timeout <seconds>', 'Maximum wait time (default: 300 image, 900 video)', parseInt)
     .option('--output-dir <path>', 'Custom output directory')
     .option('--log-level <level>', 'Logging level (DEBUG, INFO, WARNING, ERROR)', 'INFO')
@@ -1136,7 +1139,7 @@ async function main(): Promise<void> {
 
   if (options.getResult) {
     await utility('get result', async (api) => {
-      const result = await api.getResult(options.getResult as string);
+      const result = await api.getResult(options.getResult as string, options.pollingUrl ?? null);
       logger.info('');
       logger.info(JSON.stringify(result, null, 2));
       logger.info('');
