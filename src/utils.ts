@@ -215,6 +215,54 @@ export async function validateImagePath(filepath: string): Promise<string> {
   }
 }
 
+/** Server-side ceiling for uploaded video (video-edit: 50 MiB; upscale: 50 MB). */
+export const MAX_VIDEO_UPLOAD_BYTES = 50 * 1024 * 1024;
+
+/**
+ * Validate video file path.
+ * Checks file exists, is non-empty, is within the API's upload ceiling, and
+ * carries an ISO BMFF (`ftyp`) header — i.e. MP4/MOV — which is what every
+ * video endpoint accepts.
+ *
+ * @param filepath - Path to video file
+ * @returns Validated filepath
+ * @throws Error if file doesn't exist, isn't readable, is too large, or isn't MP4
+ */
+export async function validateVideoPath(filepath: string): Promise<string> {
+  try {
+    const stats = await fs.stat(filepath);
+    if (stats.size === 0) {
+      throw new Error(`Video file is empty: ${filepath}`);
+    }
+    if (stats.size > MAX_VIDEO_UPLOAD_BYTES) {
+      const mb = (stats.size / (1024 * 1024)).toFixed(1);
+      throw new Error(`Video file is ${mb}MB; the API accepts at most 50MB: ${filepath}`);
+    }
+
+    const handle = await fs.open(filepath, 'r');
+    try {
+      const header = Buffer.alloc(12);
+      await handle.read(header, 0, 12, 0);
+      // ISO BMFF: bytes 4-7 are 'ftyp'
+      if (header.slice(4, 8).toString() !== 'ftyp') {
+        throw new Error(`File does not appear to be an MP4 video: ${filepath}`);
+      }
+    } finally {
+      await handle.close();
+    }
+
+    return filepath;
+  } catch (error) {
+    const err = error as NodeJS.ErrnoException;
+    if (err.code === 'ENOENT') {
+      throw new Error(`Video file not found: ${filepath}`);
+    } else if (err.code === 'EACCES') {
+      throw new Error(`Permission denied reading video file: ${filepath}`);
+    }
+    throw error;
+  }
+}
+
 /**
  * Validate image file against constraints.
  * Checks file size and format.
@@ -466,12 +514,43 @@ export async function imageToBase64(input: string): Promise<string> {
 }
 
 /**
- * Download image from URL and save to file.
+ * Prepare a video input for the API.
+ * A local file is validated and base64-encoded. An HTTP(S) URL is validated
+ * for SSRF and returned as-is: every video endpoint accepts URLs directly, and
+ * re-embedding a 50MB clip as base64 would only inflate the request.
  *
- * @param url - Image URL
- * @param filepath - Destination file path
+ * @param input - File path or HTTP(S) URL
+ * @returns Base64 string (local file) or the URL (remote)
  */
-export async function downloadImage(url: string, filepath: string): Promise<void> {
+export async function videoToBase64(input: string): Promise<string> {
+  if (input.startsWith('http://') || input.startsWith('https://')) {
+    await validateImageUrl(input);
+    return input;
+  }
+  await validateVideoPath(input);
+  return await fileToBase64(input);
+}
+
+/** Download ceiling per media kind. Images are ~MBs; a 20s UHD clip can be far larger. */
+export const MAX_DOWNLOAD_BYTES = {
+  image: 50 * 1024 * 1024,
+  video: 500 * 1024 * 1024,
+} as const;
+
+/**
+ * Download media from URL and save to file.
+ *
+ * @param url - Media URL (signed BFL result URL)
+ * @param filepath - Destination path
+ * @param options.maxSize - Byte ceiling (default: image limit)
+ *
+ * @throws Error if download fails, URL is unsafe, or the body exceeds maxSize
+ */
+export async function downloadMedia(
+  url: string,
+  filepath: string,
+  { maxSize = MAX_DOWNLOAD_BYTES.image }: { maxSize?: number } = {}
+): Promise<void> {
   try {
     // Validate URL for security (SSRF protection)
     await validateImageUrl(url);
@@ -479,29 +558,47 @@ export async function downloadImage(url: string, filepath: string): Promise<void
     const dir = path.dirname(filepath);
     await ensureDirectory(dir);
 
-    const MAX_SIZE = 50 * 1024 * 1024; // 50MB limit
-
     const response = await axios.get<ArrayBuffer>(url, {
       responseType: 'arraybuffer',
-      timeout: 60000, // 60 second timeout for large files
+      timeout: 120000, // 2 minute timeout for large files
       maxRedirects: 5, // Limit redirects
-      maxContentLength: MAX_SIZE, // Axios built-in size limit
-      maxBodyLength: MAX_SIZE, // Axios built-in size limit
+      maxContentLength: maxSize, // Axios built-in size limit
+      maxBodyLength: maxSize, // Axios built-in size limit
     });
 
     // Verify actual size
     const dataLength = (response.data as ArrayBuffer).byteLength;
-    if (dataLength > MAX_SIZE) {
-      throw new Error(`Image exceeds maximum size of ${MAX_SIZE / (1024 * 1024)}MB`);
+    if (dataLength > maxSize) {
+      throw new Error(`Download exceeds maximum size of ${maxSize / (1024 * 1024)}MB`);
     }
 
     await fs.writeFile(filepath, Buffer.from(response.data));
-    logger.info(`Downloaded image to ${filepath} (${dataLength} bytes)`);
+    logger.info(`Downloaded to ${filepath} (${dataLength} bytes)`);
   } catch (error) {
     const err = error as Error;
-    logger.error(`Error downloading image: ${err.message}`);
+    logger.error(`Error downloading media: ${err.message}`);
     throw error;
   }
+}
+
+/**
+ * Download image from URL and save to file (50MB ceiling).
+ *
+ * @param url - Image URL
+ * @param filepath - Destination path
+ */
+export async function downloadImage(url: string, filepath: string): Promise<void> {
+  return downloadMedia(url, filepath, { maxSize: MAX_DOWNLOAD_BYTES.image });
+}
+
+/**
+ * Download video from URL and save to file (500MB ceiling).
+ *
+ * @param url - Video URL
+ * @param filepath - Destination path
+ */
+export async function downloadVideo(url: string, filepath: string): Promise<void> {
+  return downloadMedia(url, filepath, { maxSize: MAX_DOWNLOAD_BYTES.video });
 }
 
 /**

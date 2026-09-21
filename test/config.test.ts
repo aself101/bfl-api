@@ -7,7 +7,9 @@ import { describe, it, expect, afterEach } from 'vitest';
 import {
   BASE_URL,
   US_BASE_URL,
+  MODELS,
   MODEL_ENDPOINTS,
+  getModelInfo,
   MODEL_CONSTRAINTS,
   DEFAULT_POLL_INTERVAL,
   DEFAULT_TIMEOUT,
@@ -50,9 +52,44 @@ describe('Configuration Constants', () => {
   });
 
   describe('Model Endpoints', () => {
-    it('should have all 10 model endpoints', () => {
+    it('should have all 21 model endpoints', () => {
       expect(MODEL_ENDPOINTS).toBeDefined();
-      expect(Object.keys(MODEL_ENDPOINTS)).toHaveLength(10);
+      expect(Object.keys(MODEL_ENDPOINTS)).toHaveLength(21);
+    });
+
+    it('should derive MODEL_ENDPOINTS from MODELS', () => {
+      for (const [key, info] of Object.entries(MODELS)) {
+        expect(MODEL_ENDPOINTS[key as keyof typeof MODEL_ENDPOINTS]).toBe(info.path);
+      }
+    });
+
+    it('should mark every model with a media kind, and video models without an output format', () => {
+      for (const info of Object.values(MODELS)) {
+        expect(['image', 'video']).toContain(info.media);
+        if (info.media === 'video') expect(info.defaultOutputFormat).toBeUndefined();
+        else expect(['jpeg', 'png', 'webp']).toContain(info.defaultOutputFormat);
+      }
+    });
+
+    it('should record png as the server default for Kontext and the FLUX Tools image endpoints', () => {
+      for (const key of ['kontext-pro', 'kontext-max', 'flux-deblur', 'flux-erase', 'flux-outpaint'] as const) {
+        expect(MODELS[key].defaultOutputFormat).toBe('png');
+      }
+      expect(MODELS['flux-2-pro'].defaultOutputFormat).toBe('jpeg');
+    });
+
+    it('should have the FLUX.2, FLUX Tools and FLUX 3 endpoints', () => {
+      expect(MODEL_ENDPOINTS['flux-2-max']).toBe('/v1/flux-2-max');
+      expect(MODEL_ENDPOINTS['flux-2-klein-4b']).toBe('/v1/flux-2-klein-4b');
+      expect(MODEL_ENDPOINTS['flux-2-klein-9b']).toBe('/v1/flux-2-klein-9b');
+      expect(MODEL_ENDPOINTS['flux-ultra-finetuned']).toBe('/v1/flux-pro-1.1-ultra-finetuned');
+      expect(MODEL_ENDPOINTS['flux-deblur']).toBe('/v1/flux-tools/deblur-v1');
+      expect(MODEL_ENDPOINTS['flux-erase']).toBe('/v1/flux-tools/erase-v1');
+      expect(MODEL_ENDPOINTS['flux-outpaint']).toBe('/v1/flux-tools/outpainting-v1');
+      expect(MODEL_ENDPOINTS['flux-vto']).toBe('/v1/flux-tools/vto-v2');
+      expect(MODEL_ENDPOINTS['flux-3-video']).toBe('/v1/flux-3-video');
+      expect(MODEL_ENDPOINTS['flux-video-edit']).toBe('/v1/flux-tools/video-edit-v1');
+      expect(MODEL_ENDPOINTS['flux-video-upscale']).toBe('/v1/flux-tools/video-upscale-v1');
     });
 
     it('should have flux-dev endpoint', () => {
@@ -134,7 +171,7 @@ describe('Configuration Functions', () => {
 
     it('should throw error with helpful message when no API key is available', () => {
       delete process.env.BFL_API_KEY;
-      expect(() => getBflApiKey()).toThrow('Get your API key at https://api.bfl.ml/');
+      expect(() => getBflApiKey()).toThrow('Get your API key at https://dashboard.bfl.ai/');
     });
 
     it('should accept empty string CLI flag and fall back to env', () => {
@@ -331,8 +368,13 @@ describe('Configuration Functions', () => {
         expect(pngResult.valid).toBe(true);
       });
 
-      it('should reject invalid output format', () => {
+      it('should accept webp output format', () => {
         const result = validateModelParams('flux-pro-fill', { output_format: 'webp' });
+        expect(result.valid).toBe(true);
+      });
+
+      it('should reject invalid output format', () => {
+        const result = validateModelParams('flux-pro-fill', { output_format: 'gif' });
         expect(result.valid).toBe(false);
         expect(result.errors.some((e) => e.includes('Invalid output_format'))).toBe(true);
       });
@@ -443,8 +485,13 @@ describe('Configuration Functions', () => {
         expect(pngResult.valid).toBe(true);
       });
 
-      it('should reject invalid output format', () => {
+      it('should accept webp output format', () => {
         const result = validateModelParams('flux-pro-fill-finetuned', { output_format: 'webp' });
+        expect(result.valid).toBe(true);
+      });
+
+      it('should reject invalid output format', () => {
+        const result = validateModelParams('flux-pro-fill-finetuned', { output_format: 'gif' });
         expect(result.valid).toBe(false);
         expect(result.errors.some((e) => e.includes('Invalid output_format'))).toBe(true);
       });
@@ -589,8 +636,13 @@ describe('Configuration Functions', () => {
         expect(pngResult.valid).toBe(true);
       });
 
-      it('should reject invalid output format', () => {
+      it('should accept webp output format', () => {
         const result = validateModelParams('flux-pro-expand', { output_format: 'webp' });
+        expect(result.valid).toBe(true);
+      });
+
+      it('should reject invalid output format', () => {
+        const result = validateModelParams('flux-pro-expand', { output_format: 'gif' });
         expect(result.valid).toBe(false);
         expect(result.errors.some((e) => e.includes('Invalid output_format'))).toBe(true);
       });
@@ -690,8 +742,13 @@ describe('Configuration Functions', () => {
         expect(pngResult.valid).toBe(true);
       });
 
-      it('should reject invalid output format', () => {
+      it('should accept webp output format', () => {
         const result = validateModelParams('flux-2-pro', { output_format: 'webp' });
+        expect(result.valid).toBe(true);
+      });
+
+      it('should reject invalid output format', () => {
+        const result = validateModelParams('flux-2-pro', { output_format: 'gif' });
         expect(result.valid).toBe(false);
         expect(result.errors.some((e) => e.includes('Invalid output_format'))).toBe(true);
       });
@@ -844,6 +901,136 @@ describe('Configuration Functions', () => {
         const result = validateModelParams('invalid-model', {});
         expect(result.valid).toBe(false);
         expect(result.errors.some((e) => e.includes('Unknown model'))).toBe(true);
+      });
+    });
+  });
+
+  describe('validateModelParams — 2.0 endpoints', () => {
+    describe('flux-2-flex guidance/steps', () => {
+      it('accepts the documented ranges and rejects outside them', () => {
+        expect(validateModelParams('flux-2-flex', { guidance: 1.5, steps: 1 }).valid).toBe(true);
+        expect(validateModelParams('flux-2-flex', { guidance: 10, steps: 50 }).valid).toBe(true);
+        const bad = validateModelParams('flux-2-flex', { guidance: 10.5, steps: 51 });
+        expect(bad.valid).toBe(false);
+        expect(bad.errors).toHaveLength(2);
+      });
+    });
+
+    describe('kontext aspect_ratio', () => {
+      it('validates aspect_ratio against the 21:9..9:21 set', () => {
+        expect(validateModelParams('kontext-pro', { aspect_ratio: '9:21' }).valid).toBe(true);
+        expect(validateModelParams('kontext-max', { aspect_ratio: '2:1' }).valid).toBe(false);
+      });
+
+      it('caps Kontext at four input images', () => {
+        const five = validateModelParams('kontext-pro', {
+          input_image: 'a', input_image_2: 'b', input_image_3: 'c', input_image_4: 'd', input_image_5: 'e',
+        });
+        expect(five.valid).toBe(false);
+        expect(five.errors[0]).toContain('Maximum 4 input images');
+      });
+    });
+
+    describe('flux-2-klein', () => {
+      it('caps klein at four input images', () => {
+        const five = validateModelParams('flux-2-klein-9b', {
+          input_image: 'a', input_image_2: 'b', input_image_3: 'c', input_image_4: 'd', input_image_5: 'e',
+        });
+        expect(five.valid).toBe(false);
+        const eight = validateModelParams('flux-2-max', {
+          input_image: 'a', input_image_2: 'b', input_image_3: 'c', input_image_4: 'd',
+          input_image_5: 'e', input_image_6: 'f', input_image_7: 'g', input_image_8: 'h',
+        });
+        expect(eight.valid).toBe(true);
+      });
+    });
+
+    describe('flux-erase', () => {
+      it('validates dilate_pixels 0-25', () => {
+        expect(validateModelParams('flux-erase', { dilate_pixels: 0 }).valid).toBe(true);
+        expect(validateModelParams('flux-erase', { dilate_pixels: 25 }).valid).toBe(true);
+        const bad = validateModelParams('flux-erase', { dilate_pixels: 26 });
+        expect(bad.valid).toBe(false);
+        expect(bad.errors[0]).toBe('dilate_pixels must be between 0 and 25 for flux-erase');
+      });
+
+      it('validates safety_tolerance 0-5 (tools ceiling)', () => {
+        expect(validateModelParams('flux-erase', { safety_tolerance: 6 }).valid).toBe(false);
+        expect(validateModelParams('flux-deblur', { safety_tolerance: 5 }).valid).toBe(true);
+      });
+    });
+
+    describe('flux-outpaint', () => {
+      it('validates mode enum and canvas minimum without a divisibility rule', () => {
+        expect(validateModelParams('flux-outpaint', { mode: 'fast' }).valid).toBe(true);
+        expect(validateModelParams('flux-outpaint', { mode: 'medium' }).valid).toBe(false);
+        // 65 is not a multiple of anything we care about; only the minimum applies
+        expect(validateModelParams('flux-outpaint', { width: 65, height: 64 }).valid).toBe(true);
+        expect(validateModelParams('flux-outpaint', { width: 63 }).valid).toBe(false);
+      });
+    });
+
+    describe('flux-3-video', () => {
+      it('validates mode, aspect_ratio, resolution and version enums', () => {
+        expect(
+          validateModelParams('flux-3-video', { mode: 't2v', aspect_ratio: 'auto', resolution: 'uhd', version: 'latest' }).valid
+        ).toBe(true);
+        expect(validateModelParams('flux-3-video', { mode: 'text-to-video' }).valid).toBe(false);
+        expect(validateModelParams('flux-3-video', { aspect_ratio: '3:2' }).valid).toBe(false);
+        expect(validateModelParams('flux-3-video', { resolution: '4k' }).valid).toBe(false);
+        expect(validateModelParams('flux-3-video', { version: 'v1' }).valid).toBe(false);
+      });
+
+      it('accepts duration 5-20 or "auto"', () => {
+        expect(validateModelParams('flux-3-video', { duration: 5 }).valid).toBe(true);
+        expect(validateModelParams('flux-3-video', { duration: 20 }).valid).toBe(true);
+        expect(validateModelParams('flux-3-video', { duration: 'auto' }).valid).toBe(true);
+        const bad = validateModelParams('flux-3-video', { duration: 21 });
+        expect(bad.valid).toBe(false);
+        expect(bad.errors[0]).toBe('duration must be between 5 and 20 or one of: auto for flux-3-video');
+        expect(validateModelParams('flux-3-video', { duration: 'long' }).valid).toBe(false);
+      });
+
+      it('caps duration at 15 in v2v mode only', () => {
+        expect(validateModelParams('flux-3-video', { mode: 'v2v', duration: 15 }).valid).toBe(true);
+        const bad = validateModelParams('flux-3-video', { mode: 'v2v', duration: 16 });
+        expect(bad.valid).toBe(false);
+        expect(bad.errors[0]).toContain('between 5 and 15');
+        expect(validateModelParams('flux-3-video', { mode: 'i2v', duration: 16 }).valid).toBe(true);
+      });
+
+      it('uses the video safety_tolerance ceiling (0-4)', () => {
+        expect(validateModelParams('flux-3-video', { safety_tolerance: 4 }).valid).toBe(true);
+        expect(validateModelParams('flux-3-video', { safety_tolerance: 5 }).valid).toBe(false);
+        expect(validateModelParams('flux-video-edit', { safety_tolerance: 5 }).valid).toBe(false);
+        expect(validateModelParams('flux-video-upscale', { safety_tolerance: 5 }).valid).toBe(false);
+      });
+    });
+
+    describe('flux-video-edit', () => {
+      it('caps the prompt at 4096 characters', () => {
+        expect(validateModelParams('flux-video-edit', { prompt: 'x'.repeat(4096) }).valid).toBe(true);
+        expect(validateModelParams('flux-video-edit', { prompt: 'x'.repeat(4097) }).valid).toBe(false);
+      });
+    });
+
+    describe('flux-video-upscale', () => {
+      it('validates creativity enum and upscale_factor range', () => {
+        expect(validateModelParams('flux-video-upscale', { creativity: 0, upscale_factor: 1.5 }).valid).toBe(true);
+        expect(validateModelParams('flux-video-upscale', { creativity: 1, upscale_factor: 3 }).valid).toBe(true);
+        expect(validateModelParams('flux-video-upscale', { creativity: 2 }).valid).toBe(false);
+        expect(validateModelParams('flux-video-upscale', { upscale_factor: 3.1 }).valid).toBe(false);
+        expect(validateModelParams('flux-video-upscale', { upscale_factor: 1.4 }).valid).toBe(false);
+      });
+    });
+
+    describe('every model', () => {
+      it('has a constraint entry and a registry entry', () => {
+        for (const key of Object.keys(MODELS)) {
+          expect(validateModelParams(key, {}).valid).toBe(true);
+          expect(getModelInfo(key)).not.toBeNull();
+        }
+        expect(getModelInfo('nope')).toBeNull();
       });
     });
   });

@@ -25,6 +25,11 @@ import {
   urlToBase64,
   imageToBase64,
   downloadImage,
+  validateVideoPath,
+  videoToBase64,
+  downloadVideo,
+  downloadMedia,
+  MAX_VIDEO_UPLOAD_BYTES,
   pause,
   randomNumber
 } from '../src/utils.js';
@@ -682,6 +687,103 @@ describe('Image Conversion', () => {
 
       await expect(
         downloadImage('https://example.com/large.jpg', join(testDir, 'large.jpg'))
+      ).rejects.toThrow('exceeds maximum size');
+    });
+  });
+});
+
+describe('Video Inputs and Downloads', () => {
+  const testDir = join(process.cwd(), 'test-temp-video');
+  const mp4File = join(testDir, 'clip.mp4');
+  const movFile = join(testDir, 'clip.mov');
+  const notVideo = join(testDir, 'not-a-video.mp4');
+  const emptyFile = join(testDir, 'empty.mp4');
+  const ftyp = (brand: string): Buffer =>
+    Buffer.concat([Buffer.from([0, 0, 0, 0x18]), Buffer.from('ftyp'), Buffer.from(brand), Buffer.alloc(64)]);
+
+  beforeAll(() => {
+    try { mkdirSync(testDir, { recursive: true }); } catch (e) { /* ignore */ }
+    writeFileSync(mp4File, ftyp('mp42'));
+    writeFileSync(movFile, ftyp('qt  '));
+    writeFileSync(notVideo, Buffer.from([0x89, 0x50, 0x4e, 0x47, ...new Array(100).fill(0)]));
+    writeFileSync(emptyFile, Buffer.alloc(0));
+    mockedLookup.mockResolvedValue({ address: '8.8.8.8', family: 4 });
+  });
+
+  afterAll(() => {
+    for (const f of [mp4File, movFile, notVideo, emptyFile]) {
+      try { unlinkSync(f); } catch (e) { /* ignore */ }
+    }
+    try { rmdirSync(testDir); } catch (e) { /* ignore */ }
+  });
+
+  describe('validateVideoPath', () => {
+    it('accepts ISO BMFF files (mp4, mov)', async () => {
+      await expect(validateVideoPath(mp4File)).resolves.toBe(mp4File);
+      await expect(validateVideoPath(movFile)).resolves.toBe(movFile);
+    });
+
+    it('rejects files without an ftyp header regardless of extension', async () => {
+      await expect(validateVideoPath(notVideo)).rejects.toThrow('does not appear to be an MP4 video');
+    });
+
+    it('rejects empty and missing files', async () => {
+      await expect(validateVideoPath(emptyFile)).rejects.toThrow('empty');
+      await expect(validateVideoPath(join(testDir, 'nope.mp4'))).rejects.toThrow('not found');
+    });
+
+    it('rejects files over the upload ceiling', async () => {
+      const big = join(testDir, 'big.mp4');
+      writeFileSync(big, Buffer.concat([ftyp('mp42'), Buffer.alloc(MAX_VIDEO_UPLOAD_BYTES)]));
+      try {
+        await expect(validateVideoPath(big)).rejects.toThrow('at most 50MB');
+      } finally {
+        unlinkSync(big);
+      }
+    });
+  });
+
+  describe('videoToBase64', () => {
+    beforeEach(() => {
+      mockedAxios.get.mockClear();
+    });
+
+    it('base64-encodes a local file', async () => {
+      const b64 = await videoToBase64(mp4File);
+      expect(Buffer.from(b64, 'base64').subarray(4, 8).toString()).toBe('ftyp');
+    });
+
+    it('passes a validated URL through unchanged rather than embedding it', async () => {
+      await expect(videoToBase64('https://example.com/clip.mp4')).resolves.toBe('https://example.com/clip.mp4');
+      expect(mockedAxios.get).not.toHaveBeenCalled();
+    });
+
+    it('applies SSRF protection to URLs', async () => {
+      await expect(videoToBase64('http://localhost/clip.mp4')).rejects.toThrow();
+    });
+  });
+
+  describe('downloadVideo / downloadMedia', () => {
+    beforeEach(() => {
+      mockedLookup.mockResolvedValue({ address: '8.8.8.8', family: 4 });
+    });
+
+    it('downloads a video with the larger ceiling', async () => {
+      const out = join(testDir, 'out.mp4');
+      mockedAxios.get.mockResolvedValue({ data: ftyp('mp42'), headers: {} });
+      await downloadVideo('https://example.com/v.mp4', out);
+      expect(existsSync(out)).toBe(true);
+      expect(mockedAxios.get).toHaveBeenCalledWith(
+        'https://example.com/v.mp4',
+        expect.objectContaining({ maxContentLength: 500 * 1024 * 1024 })
+      );
+      unlinkSync(out);
+    });
+
+    it('downloadMedia honours a custom ceiling', async () => {
+      mockedAxios.get.mockResolvedValue({ data: Buffer.alloc(11), headers: {} });
+      await expect(
+        downloadMedia('https://example.com/v.mp4', join(testDir, 'tiny.mp4'), { maxSize: 10 })
       ).rejects.toThrow('exceeds maximum size');
     });
   });

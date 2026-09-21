@@ -1,31 +1,23 @@
 #!/usr/bin/env node
 
 /**
- * BFL Image Generation - Main CLI Script
+ * BFL Generation - Main CLI Script
  *
- * Command-line tool for generating images using Black Forest Labs API.
- * Supports batch processing with multiple prompts and all 10 BFL models.
+ * Command-line tool for generating images and video using the Black Forest
+ * Labs API. Supports batch processing with multiple prompts across every
+ * model the API exposes.
  *
  * Usage:
  *   bfl --flux-dev --prompt "a cat" --width 1024 --height 768
- *   bfl --flux-ultra --prompt "landscape" --aspect-ratio "21:9" --raw
- *   bfl --flux-fill --prompt "add grass" --image ./photo.jpg --mask ./mask.png
- *   bfl --flux-expand --prompt "extend sky" --image ./photo.jpg --top 512
- *   bfl --kontext-pro --prompt "edit this" --input-image ./photo.jpg
+ *   bfl --flux-2-pro --prompt "a castle" --input-image ./ref.jpg
+ *   bfl --flux-erase --image ./photo.jpg --mask ./mask.png
+ *   bfl --flux-3-video --video-mode t2v --prompt "a fox in autumn woods" --duration 8
+ *   bfl --flux-video-edit --video ./clip.mp4 --prompt "make it snow"
  *
  * Or with npm:
  *   npm run bfl -- --flux-dev --prompt "a cat" --width 1024 --height 768
  *
- * Models:
- *   --flux-dev         FLUX.1 [dev] - Full control over steps and guidance
- *   --flux-pro         FLUX 1.1 [pro] - Professional quality with Redux
- *   --flux-ultra       FLUX 1.1 [pro] Ultra - Aspect ratios and raw mode
- *   --flux-fill        FLUX.1 Fill [pro] - Inpainting with masks
- *   --flux-expand      FLUX.1 Expand [pro] - Expand/outpaint images
- *   --kontext-pro      Kontext Pro - Multi-reference image editing
- *   --kontext-max      Kontext Max - Maximum quality editing
- *   --flux-2-pro       FLUX.2 [PRO] - Generate/edit with multi-image support
- *   --flux-2-flex      FLUX.2 [FLEX] - Generate/edit with multi-image support
+ * Run `bfl --examples` for a worked example of every model.
  */
 
 import { Command } from 'commander';
@@ -35,7 +27,11 @@ import { readFileSync } from 'fs';
 import { BflAPI } from './api.js';
 import {
   imageToBase64,
+  videoToBase64,
+  fileToBase64,
+  validateImageUrl,
   downloadImage,
+  downloadVideo,
   promptToFilename,
   generateTimestampedFilename,
   writeToFile,
@@ -43,8 +39,15 @@ import {
   setLogLevel,
   logger,
 } from './utils.js';
-import { getOutputDir } from './config.js';
-import type { TaskResult, ModelEndpointKey } from './types/index.js';
+import { getOutputDir, MODELS, validateModelParams } from './config.js';
+import type {
+  SubmitResult,
+  ModelEndpointKey,
+  Flux3VideoParams,
+  Flux3VideoMode,
+  VideoKeyframe,
+  OutputFormat,
+} from './types/index.js';
 
 // ES module dirname equivalent
 const __filename = fileURLToPath(import.meta.url);
@@ -57,32 +60,49 @@ const packageJson = JSON.parse(readFileSync(path.join(__dirname, '..', 'package.
 const { version } = packageJson;
 
 /**
- * CLI options interface
+ * CLI options interface (commander camel-cases the flag names).
  */
 interface CliOptions {
+  // Model selection
   fluxDev?: boolean;
   fluxPro?: boolean;
   fluxUltra?: boolean;
+  fluxUltraFinetuned?: boolean;
   fluxFill?: boolean;
   fluxFillFinetuned?: boolean;
   fluxExpand?: boolean;
   kontextPro?: boolean;
   kontextMax?: boolean;
-  flux_2Pro?: boolean;
   flux2Pro?: boolean;
-  flux_2Flex?: boolean;
   flux2Flex?: boolean;
+  flux2Max?: boolean;
+  flux2Klein4b?: boolean;
+  flux2Klein9b?: boolean;
+  fluxDeblur?: boolean;
+  fluxErase?: boolean;
+  fluxOutpaint?: boolean;
+  fluxVto?: boolean;
+  flux3Video?: boolean;
+  fluxVideoEdit?: boolean;
+  fluxVideoUpscale?: boolean;
+  // Common
   prompt: string[];
   seed?: number;
   safetyTolerance?: number;
-  outputFormat?: string;
+  outputFormat?: OutputFormat;
   promptUpsampling?: boolean;
+  disablePup?: boolean;
+  user?: string;
+  webhookUrl?: string;
+  webhookSecret?: string;
+  // Dimensions / sampling
   width?: number;
   height?: number;
   steps?: number;
   guidance?: number;
   aspectRatio?: string;
   raw?: boolean;
+  // Image inputs
   imagePrompt?: string;
   imagePromptStrength?: number;
   image?: string;
@@ -95,16 +115,43 @@ interface CliOptions {
   inputImage6?: string;
   inputImage7?: string;
   inputImage8?: string;
+  person?: string;
+  garment?: string;
+  // Expand (FLUX.1)
   top?: number;
   bottom?: number;
   left?: number;
   right?: number;
+  // Finetune
   finetuneId?: string;
   finetuneStrength?: number;
+  // FLUX Tools (image)
+  dilatePixels?: number;
+  autoCrop?: boolean;
+  referenceOffsetX?: number;
+  referenceOffsetY?: number;
+  outpaintMode?: 'high' | 'fast';
+  // Video
+  videoMode?: Flux3VideoMode;
+  keyframe?: string[];
+  startVideo?: string;
+  draftCache?: string;
+  duration?: string;
+  resolution?: string;
+  audio?: boolean;
+  draft?: boolean;
+  video?: string;
+  inputVideo?: string;
+  creativity?: number;
+  upscaleFactor?: number;
+  // Utility
   apiKey?: string;
   examples?: boolean;
   credits?: boolean;
   listFinetunes?: boolean;
+  finetuneDetails?: string;
+  deleteFinetune?: string;
+  yes?: boolean;
   getResult?: string;
   timeout?: number;
   outputDir?: string;
@@ -112,40 +159,8 @@ interface CliOptions {
   dryRun?: boolean;
 }
 
-/**
- * Generation parameters interface
- */
-interface GenerationParams {
-  prompt: string;
-  seed?: number;
-  safety_tolerance?: number;
-  output_format?: string;
-  prompt_upsampling?: boolean;
-  width?: number;
-  height?: number;
-  steps?: number;
-  guidance?: number;
-  aspect_ratio?: string;
-  raw?: boolean;
-  image_prompt?: string;
-  image_prompt_strength?: number;
-  image?: string;
-  mask?: string;
-  input_image?: string;
-  input_image_2?: string;
-  input_image_3?: string;
-  input_image_4?: string;
-  input_image_5?: string;
-  input_image_6?: string;
-  input_image_7?: string;
-  input_image_8?: string;
-  top?: number;
-  bottom?: number;
-  left?: number;
-  right?: number;
-  finetune_id?: string;
-  finetune_strength?: number;
-}
+/** Loosely-typed bag of API params; narrowed at the call site per model. */
+type GenerationParams = Record<string, unknown> & { prompt?: string };
 
 /**
  * Generation result interface
@@ -154,20 +169,11 @@ interface GenerationResult {
   success: boolean;
   dryRun?: boolean;
   taskId?: string;
-  imagePath?: string;
+  outputPath?: string;
   metadataPath?: string;
   metadata?: Record<string, unknown>;
   error?: string;
   prompt?: string;
-}
-
-/**
- * Image input mapping interface
- */
-interface ImageInputMapping {
-  option: keyof CliOptions;
-  param: keyof GenerationParams;
-  label: string;
 }
 
 /**
@@ -176,8 +182,10 @@ interface ImageInputMapping {
 function showExamples(): void {
   console.log(`
 ${'='.repeat(60)}
-BFL IMAGE GENERATION - USAGE EXAMPLES
+BFL GENERATION - USAGE EXAMPLES
 ${'='.repeat(60)}
+
+--- FLUX.1 ---
 
 1. FLUX.1 [dev] - Basic text-to-image
    $ bfl --flux-dev \\
@@ -185,152 +193,167 @@ ${'='.repeat(60)}
        --width 1024 --height 768 \\
        --steps 28 --guidance 3
 
-2. FLUX.1 [dev] - High detail with more steps
-   $ bfl --flux-dev \\
-       --prompt "photorealistic portrait of an astronaut" \\
-       --width 1024 --height 1024 \\
-       --steps 50 --guidance 4 \\
-       --seed 42
-
-3. FLUX 1.1 [pro] - Professional quality
-   $ bfl --flux-pro \\
-       --prompt "modern minimalist interior design" \\
-       --width 1024 --height 768 \\
-       --prompt-upsampling
-
-4. FLUX 1.1 [pro] - Redux image-to-image
+2. FLUX 1.1 [pro] - Redux image-to-image
    $ bfl --flux-pro \\
        --prompt "same style but at night with city lights" \\
        --image-prompt ./reference.jpg \\
        --width 1024 --height 1024
 
-5. FLUX 1.1 [pro] Ultra - Cinematic wide format
+3. FLUX 1.1 [pro] Ultra - Cinematic wide format
    $ bfl --flux-ultra \\
        --prompt "epic cinematic landscape, golden hour" \\
        --aspect-ratio "21:9" \\
        --raw
 
-6. FLUX Ultra - Image remixing with strength control
-   $ bfl --flux-ultra \\
-       --prompt "transform into oil painting style" \\
-       --image-prompt ./photo.jpg \\
-       --image-prompt-strength 0.5 \\
-       --aspect-ratio "16:9"
+4. FLUX 1.1 [pro] Ultra Finetune - Your model at ultra quality
+   $ bfl --flux-ultra-finetuned \\
+       --finetune-id "my-custom-model" \\
+       --prompt "product shot in my brand style" \\
+       --finetune-strength 1.2 --aspect-ratio "1:1"
 
-7. FLUX.1 Fill [pro] - Inpainting with mask
+5. FLUX.1 Fill [pro] - Inpainting with mask
    $ bfl --flux-fill \\
        --prompt "fill with lush green grass and flowers" \\
        --image ./photo.jpg \\
        --mask ./mask.png \\
        --steps 30 --guidance 5
 
-8. FLUX.1 Fill [pro] - Auto-mask inpainting
-   $ bfl --flux-fill \\
-       --prompt "replace the sky with sunset colors" \\
-       --image ./landscape.jpg \\
-       --steps 25
-
-9. FLUX.1 Fill [pro] Finetune - Custom model inpainting
+6. FLUX.1 Fill [pro] Finetune - Custom model inpainting
    $ bfl --flux-fill-finetuned \\
        --finetune-id "my-custom-model" \\
        --prompt "apply my custom style to the masked area" \\
+       --image ./photo.jpg --mask ./mask.png \\
+       --finetune-strength 1.2
+
+7. FLUX.1 Expand [pro] - Extend image on all sides
+   $ bfl --flux-expand \\
+       --prompt "extend with dramatic clouds and mountain vista" \\
        --image ./photo.jpg \\
-       --mask ./mask.png \\
-       --finetune-strength 1.2 \\
-       --steps 35 --guidance 60
+       --top 512 --bottom 256 --left 256 --right 256
 
-10. FLUX.1 Expand [pro] - Extend image on all sides
-    $ bfl --flux-expand \\
-        --prompt "extend with dramatic clouds and mountain vista" \\
-        --image ./photo.jpg \\
-        --top 512 --bottom 256 --left 256 --right 256 \\
-        --steps 30 --guidance 60
+8. Kontext Pro - Image editing
+   $ bfl --kontext-pro \\
+       --prompt "make it look like winter, add snow" \\
+       --input-image ./summer_photo.jpg
 
-11. FLUX.1 Expand [pro] - Vertical expansion
-    $ bfl --flux-expand \\
-        --prompt "add sky with clouds above and ground below" \\
-        --image ./portrait.jpg \\
-        --top 1024 --bottom 512 \\
-        --steps 40
+9. Kontext Max - Text-only generation with aspect ratio
+   $ bfl --kontext-max \\
+       --prompt "a lighthouse in a storm" \\
+       --aspect-ratio "16:9"
 
-12. Kontext Pro - Image editing
-    $ bfl --kontext-pro \\
-        --prompt "make it look like winter, add snow" \\
-        --input-image ./summer_photo.jpg
+--- FLUX.2 ---
 
-13. Kontext Pro - Multi-reference editing
-    $ bfl --kontext-pro \\
-        --prompt "combine the style from image 2 with subject from image 1" \\
-        --input-image ./subject.jpg \\
-        --input-image-2 ./style_reference.jpg
-
-14. Kontext Max - Premium quality editing
-    $ bfl --kontext-max \\
-        --prompt "enhance colors, increase contrast, professional grade" \\
-        --input-image ./photo.jpg \\
-        --output-format png
-
-15. Batch generation - Multiple prompts
-    $ bfl --flux-dev \\
-        --prompt "a red sports car" \\
-        --prompt "a blue vintage car" \\
-        --prompt "a green electric car" \\
-        --seed 42 --width 1024 --height 768
-
-16. Batch with different seeds for variation
-    $ bfl --flux-ultra \\
-        --prompt "abstract art, vibrant colors" \\
-        --prompt "abstract art, vibrant colors" \\
-        --prompt "abstract art, vibrant colors" \\
-        --aspect-ratio "1:1"
-    # Each will generate differently without seed
-
-17. Custom output directory
-    $ bfl --flux-dev \\
-        --prompt "logo design for tech startup" \\
-        --output-dir ./my-generations \\
-        --output-format png
-
-18. Dry run to preview parameters
-    $ bfl --flux-ultra \\
-        --prompt "test prompt" \\
-        --aspect-ratio "21:9" --raw \\
-        --dry-run
-
-19. Check account credits
-    $ bfl --credits
-
-20. List your fine-tuned models
-    $ bfl --list-finetunes
-
-21. Poll existing task
-    $ bfl --get-result abc123def456
-
-22. FLUX.2 [PRO] - Text-to-image generation
+10. FLUX.2 [pro] - Text-to-image (prompt upsampling is on by default)
     $ bfl --flux-2-pro \\
         --prompt "a majestic castle on a cliff at sunset" \\
         --width 1024 --height 1024
 
-23. FLUX.2 [PRO] - Image editing with context
+11. FLUX.2 [pro] - Edit with your prompt used verbatim
     $ bfl --flux-2-pro \\
         --prompt "add a dragon flying in the sky" \\
         --input-image ./castle.jpg \\
-        --width 1024 --height 1024
+        --disable-pup
 
-24. FLUX.2 [FLEX] - Multi-reference generation
-    $ bfl --flux-2-flex \\
+12. FLUX.2 [max] - Highest quality, multi-reference
+    $ bfl --flux-2-max \\
         --prompt "combine the subject and style" \\
         --input-image ./subject.jpg \\
         --input-image-2 ./style_reference.jpg
 
-25. FLUX.2 [FLEX] - Experimental multiref (up to 8 images)
+13. FLUX.2 [flex] - Control guidance and steps
     $ bfl --flux-2-flex \\
-        --prompt "create a scene combining all elements" \\
-        --input-image ./img1.jpg \\
-        --input-image-2 ./img2.jpg \\
-        --input-image-3 ./img3.jpg \\
-        --input-image-4 ./img4.jpg \\
-        --input-image-5 ./img5.jpg
+        --prompt "a detailed watercolor of a harbour" \\
+        --guidance 4 --steps 30
+
+14. FLUX.2 [klein] 4B / 9B - Fast tier, up to four references
+    $ bfl --flux-2-klein-4b --prompt "a red bicycle" --width 768 --height 768
+    $ bfl --flux-2-klein-9b --prompt "the bicycle at night" --input-image ./bike.jpg
+
+--- FLUX Tools (image) ---
+
+15. Deblur - Image only, no prompt
+    $ bfl --flux-deblur --image ./blurry.jpg
+
+16. Erase - Remove what the mask marks (white = remove)
+    $ bfl --flux-erase \\
+        --image ./photo.jpg --mask ./remove_mask.png \\
+        --dilate-pixels 12
+
+17. Outpaint - Place the image on a larger canvas
+    $ bfl --flux-outpaint \\
+        --input-image ./photo.jpg \\
+        --width 2048 --height 1024 \\
+        --prompt "extend the horizon" \\
+        --outpaint-mode fast
+
+18. Virtual Try-On
+    $ bfl --flux-vto \\
+        --prompt "TRY-ON: The person of image 1 wearing the garments of image 2." \\
+        --person ./person.jpg --garment ./jacket.png
+
+--- FLUX 3 (video) ---
+
+19. Text-to-video
+    $ bfl --flux-3-video --video-mode t2v \\
+        --prompt "a fox runs through autumn woods" \\
+        --duration 8 --resolution fhd --aspect-ratio "16:9"
+
+20. Image-continuation - keyframes spread across the duration
+    $ bfl --flux-3-video --video-mode i2v \\
+        --prompt "the scene comes alive" \\
+        --keyframe ./start.jpg ./end.jpg \\
+        --duration 6
+
+21. Image-continuation - timed keyframes (seconds:path)
+    $ bfl --flux-3-video --video-mode i2v \\
+        --prompt "morph between the two" \\
+        --keyframe 0:./a.jpg 4.5:./b.jpg
+
+22. Video-continuation
+    $ bfl --flux-3-video --video-mode v2v \\
+        --prompt "the camera keeps pulling back" \\
+        --start-video ./clip.mp4 --duration 10
+
+23. Draft then enhance
+    $ bfl --flux-3-video --video-mode t2v --prompt "..." --draft
+    # download the draft_cache .bin from the result, then:
+    $ bfl --flux-3-video --video-mode draft_enhance \\
+        --draft-cache ./draft.bin --resolution qhd
+
+24. Video edit
+    $ bfl --flux-video-edit --video ./clip.mp4 --prompt "make it snow"
+
+25. Video upscale
+    $ bfl --flux-video-upscale --input-video ./clip.mp4 \\
+        --upscale-factor 2 --creativity 0
+
+--- Batch, output, utilities ---
+
+26. Batch generation - Multiple prompts
+    $ bfl --flux-dev \\
+        --prompt "a red sports car" \\
+        --prompt "a blue vintage car" \\
+        --seed 42 --width 1024 --height 768
+
+27. Output format and directory
+    $ bfl --flux-2-pro --prompt "logo design" \\
+        --output-format webp --output-dir ./my-generations
+
+28. Webhook instead of polling
+    $ bfl --flux-2-pro --prompt "..." \\
+        --webhook-url https://example.com/hook --webhook-secret s3cret
+
+29. Dry run to preview parameters
+    $ bfl --flux-ultra --prompt "test prompt" --aspect-ratio "21:9" --dry-run
+
+30. Account and finetunes
+    $ bfl --credits
+    $ bfl --list-finetunes
+    $ bfl --finetune-details my-custom-model
+    $ bfl --delete-finetune my-custom-model --yes
+
+31. Poll existing task
+    $ bfl --get-result abc123def456
 
 AUTHENTICATION OPTIONS:
 
@@ -339,19 +362,43 @@ A. CLI flag (highest priority)
 
 B. Environment variable
    $ export BFL_API_KEY=YOUR_KEY
-   $ bfl --flux-dev --prompt "test"
 
 C. Local .env file (current directory)
    $ echo "BFL_API_KEY=YOUR_KEY" > .env
-   $ bfl --flux-dev --prompt "test"
 
 D. Global config (for global installs)
    $ mkdir -p ~/.bfl && echo "BFL_API_KEY=YOUR_KEY" > ~/.bfl/.env
-   $ bfl --flux-dev --prompt "test"
 
 ${'='.repeat(60)}
 `);
 }
+
+/**
+ * CLI flag (camelCased) → model key, in the order the flags are declared.
+ */
+const MODEL_FLAGS: Record<string, ModelEndpointKey> = {
+  fluxDev: 'flux-dev',
+  fluxPro: 'flux-pro',
+  fluxUltra: 'flux-ultra',
+  fluxUltraFinetuned: 'flux-ultra-finetuned',
+  fluxFill: 'flux-pro-fill',
+  fluxFillFinetuned: 'flux-pro-fill-finetuned',
+  fluxExpand: 'flux-pro-expand',
+  kontextPro: 'kontext-pro',
+  kontextMax: 'kontext-max',
+  flux2Pro: 'flux-2-pro',
+  flux2Flex: 'flux-2-flex',
+  flux2Max: 'flux-2-max',
+  flux2Klein4b: 'flux-2-klein-4b',
+  flux2Klein9b: 'flux-2-klein-9b',
+  fluxDeblur: 'flux-deblur',
+  fluxErase: 'flux-erase',
+  fluxOutpaint: 'flux-outpaint',
+  fluxVto: 'flux-vto',
+  flux3Video: 'flux-3-video',
+  fluxVideoEdit: 'flux-video-edit',
+  fluxVideoUpscale: 'flux-video-upscale',
+};
 
 /**
  * Get the model name from command options.
@@ -360,107 +407,187 @@ ${'='.repeat(60)}
  * @returns Model name or null if none selected
  */
 function getSelectedModel(options: CliOptions): ModelEndpointKey | null {
-  if (options.fluxDev) return 'flux-dev';
-  if (options.fluxPro) return 'flux-pro';
-  if (options.fluxUltra) return 'flux-ultra';
-  if (options.fluxFill) return 'flux-pro-fill';
-  if (options.fluxFillFinetuned) return 'flux-pro-fill-finetuned';
-  if (options.fluxExpand) return 'flux-pro-expand';
-  if (options.kontextPro) return 'kontext-pro';
-  if (options.kontextMax) return 'kontext-max';
-  if (options.flux_2Pro || options.flux2Pro) return 'flux-2-pro';
-  if (options.flux_2Flex || options.flux2Flex) return 'flux-2-flex';
-  return null;
+  const selected = Object.entries(MODEL_FLAGS)
+    .filter(([flag]) => (options as unknown as Record<string, unknown>)[flag])
+    .map(([, model]) => model);
+  if (selected.length > 1) {
+    throw new Error(`Select exactly one model (got: ${selected.join(', ')})`);
+  }
+  return selected[0] ?? null;
+}
+
+/** Models that run without a --prompt. */
+const PROMPT_OPTIONAL: ReadonlySet<ModelEndpointKey> = new Set([
+  'flux-pro-expand',
+  'flux-deblur',
+  'flux-erase',
+  'flux-outpaint',
+  'flux-video-upscale',
+]);
+
+/**
+ * Required file/URL inputs per model, as CLI flag names for the error message.
+ */
+const REQUIRED_INPUTS: Partial<Record<ModelEndpointKey, string[]>> = {
+  'flux-pro-fill': ['--image'],
+  'flux-pro-fill-finetuned': ['--image', '--finetune-id'],
+  'flux-ultra-finetuned': ['--finetune-id'],
+  'flux-pro-expand': ['--image'],
+  'flux-deblur': ['--image'],
+  'flux-erase': ['--image', '--mask'],
+  'flux-outpaint': ['--input-image', '--width', '--height'],
+  'flux-vto': ['--person', '--garment'],
+  'flux-video-edit': ['--video'],
+  'flux-video-upscale': ['--input-video'],
+};
+
+/** Flag name → option key, for REQUIRED_INPUTS lookups. */
+function flagToOption(flag: string): keyof CliOptions {
+  return flag
+    .replace(/^--/, '')
+    .replace(/-([a-z0-9])/g, (_, c: string) => c.toUpperCase()) as keyof CliOptions;
 }
 
 /**
- * Build parameters for FLUX.1 [dev] model.
+ * Copy a CLI option onto the params object under its API name if it was set.
  */
-function buildFluxDevParams(params: GenerationParams, options: CliOptions): void {
-  if (options.width) params.width = options.width;
-  if (options.height) params.height = options.height;
-  if (options.steps) params.steps = options.steps;
-  if (options.guidance) params.guidance = options.guidance;
-  if (options.promptUpsampling !== undefined) params.prompt_upsampling = options.promptUpsampling;
-}
-
-/**
- * Build parameters for FLUX 1.1 [pro] model.
- */
-function buildFluxProParams(params: GenerationParams, options: CliOptions): void {
-  if (options.width) params.width = options.width;
-  if (options.height) params.height = options.height;
-  if (options.promptUpsampling !== undefined) params.prompt_upsampling = options.promptUpsampling;
-}
-
-/**
- * Build parameters for FLUX Ultra model.
- */
-function buildFluxUltraParams(params: GenerationParams, options: CliOptions): void {
-  if (options.aspectRatio) params.aspect_ratio = options.aspectRatio;
-  if (options.raw !== undefined) params.raw = options.raw;
-  if (options.imagePromptStrength !== undefined)
-    params.image_prompt_strength = options.imagePromptStrength;
-}
-
-/**
- * Build parameters for FLUX.1 Fill [pro] model.
- */
-function buildFluxProFillParams(params: GenerationParams, options: CliOptions): void {
-  if (options.steps) params.steps = options.steps;
-  if (options.guidance !== undefined) params.guidance = options.guidance;
-  if (options.promptUpsampling !== undefined) params.prompt_upsampling = options.promptUpsampling;
-}
-
-/**
- * Build parameters for FLUX.1 Fill [pro] Finetune model.
- */
-function buildFluxProFillFinetunedParams(params: GenerationParams, options: CliOptions): void {
-  if (options.finetuneId) params.finetune_id = options.finetuneId;
-  if (options.finetuneStrength !== undefined) params.finetune_strength = options.finetuneStrength;
-  if (options.steps) params.steps = options.steps;
-  if (options.guidance !== undefined) params.guidance = options.guidance;
-  if (options.promptUpsampling !== undefined) params.prompt_upsampling = options.promptUpsampling;
-}
-
-/**
- * Build parameters for FLUX.1 Expand [pro] model.
- */
-function buildFluxProExpandParams(params: GenerationParams, options: CliOptions): void {
-  if (options.top !== undefined) params.top = options.top;
-  if (options.bottom !== undefined) params.bottom = options.bottom;
-  if (options.left !== undefined) params.left = options.left;
-  if (options.right !== undefined) params.right = options.right;
-  if (options.steps) params.steps = options.steps;
-  if (options.guidance !== undefined) params.guidance = options.guidance;
-  if (options.promptUpsampling !== undefined) params.prompt_upsampling = options.promptUpsampling;
-}
-
-/**
- * Build parameters for FLUX.2 [PRO] and FLUX.2 [FLEX] models.
- */
-function buildFlux2Params(params: GenerationParams, options: CliOptions): void {
-  if (options.width) params.width = options.width;
-  if (options.height) params.height = options.height;
-  // prompt_upsampling defaults to true for FLUX.2 models
-  if (options.promptUpsampling !== undefined) {
-    params.prompt_upsampling = options.promptUpsampling;
+function put(
+  params: GenerationParams,
+  options: CliOptions,
+  option: keyof CliOptions,
+  apiName: string
+): void {
+  const value = options[option];
+  if (value !== undefined && value !== null) {
+    params[apiName] = value;
   }
 }
 
 /**
- * Add common parameters shared across all models.
+ * Add parameters shared by most image models.
  */
 function addCommonParams(params: GenerationParams, options: CliOptions): void {
-  if (options.seed !== undefined) params.seed = options.seed;
-  if (options.safetyTolerance !== undefined) params.safety_tolerance = options.safetyTolerance;
-  if (options.outputFormat) params.output_format = options.outputFormat;
+  put(params, options, 'seed', 'seed');
+  put(params, options, 'safetyTolerance', 'safety_tolerance');
+  put(params, options, 'outputFormat', 'output_format');
+  put(params, options, 'user', 'user');
+  put(params, options, 'webhookUrl', 'webhook_url');
+  put(params, options, 'webhookSecret', 'webhook_secret');
 }
 
 /**
- * Image input mappings for converting CLI options to API parameters.
+ * Add model-specific parameters (everything except media inputs).
  */
-const IMAGE_INPUT_MAPPINGS: ImageInputMapping[] = [
+function addModelParams(model: ModelEndpointKey, params: GenerationParams, options: CliOptions): void {
+  switch (model) {
+    case 'flux-dev':
+      put(params, options, 'width', 'width');
+      put(params, options, 'height', 'height');
+      put(params, options, 'steps', 'steps');
+      put(params, options, 'guidance', 'guidance');
+      put(params, options, 'promptUpsampling', 'prompt_upsampling');
+      break;
+    case 'flux-pro':
+      put(params, options, 'width', 'width');
+      put(params, options, 'height', 'height');
+      put(params, options, 'promptUpsampling', 'prompt_upsampling');
+      break;
+    case 'flux-ultra':
+      put(params, options, 'aspectRatio', 'aspect_ratio');
+      put(params, options, 'raw', 'raw');
+      put(params, options, 'imagePromptStrength', 'image_prompt_strength');
+      put(params, options, 'promptUpsampling', 'prompt_upsampling');
+      break;
+    case 'flux-ultra-finetuned':
+      put(params, options, 'finetuneId', 'finetune_id');
+      put(params, options, 'finetuneStrength', 'finetune_strength');
+      put(params, options, 'aspectRatio', 'aspect_ratio');
+      put(params, options, 'imagePromptStrength', 'image_prompt_strength');
+      put(params, options, 'promptUpsampling', 'prompt_upsampling');
+      break;
+    case 'flux-pro-fill':
+      put(params, options, 'steps', 'steps');
+      put(params, options, 'guidance', 'guidance');
+      put(params, options, 'promptUpsampling', 'prompt_upsampling');
+      break;
+    case 'flux-pro-fill-finetuned':
+      put(params, options, 'finetuneId', 'finetune_id');
+      put(params, options, 'finetuneStrength', 'finetune_strength');
+      put(params, options, 'steps', 'steps');
+      put(params, options, 'guidance', 'guidance');
+      put(params, options, 'promptUpsampling', 'prompt_upsampling');
+      break;
+    case 'flux-pro-expand':
+      put(params, options, 'top', 'top');
+      put(params, options, 'bottom', 'bottom');
+      put(params, options, 'left', 'left');
+      put(params, options, 'right', 'right');
+      put(params, options, 'steps', 'steps');
+      put(params, options, 'guidance', 'guidance');
+      put(params, options, 'promptUpsampling', 'prompt_upsampling');
+      break;
+    case 'kontext-pro':
+    case 'kontext-max':
+      put(params, options, 'aspectRatio', 'aspect_ratio');
+      put(params, options, 'promptUpsampling', 'prompt_upsampling');
+      break;
+    case 'flux-2-pro':
+    case 'flux-2-max':
+      put(params, options, 'width', 'width');
+      put(params, options, 'height', 'height');
+      put(params, options, 'disablePup', 'disable_pup');
+      break;
+    case 'flux-2-flex':
+      put(params, options, 'width', 'width');
+      put(params, options, 'height', 'height');
+      put(params, options, 'guidance', 'guidance');
+      put(params, options, 'steps', 'steps');
+      put(params, options, 'promptUpsampling', 'prompt_upsampling');
+      break;
+    case 'flux-2-klein-4b':
+    case 'flux-2-klein-9b':
+      put(params, options, 'width', 'width');
+      put(params, options, 'height', 'height');
+      break;
+    case 'flux-deblur':
+      break;
+    case 'flux-erase':
+      put(params, options, 'dilatePixels', 'dilate_pixels');
+      break;
+    case 'flux-outpaint':
+      put(params, options, 'width', 'width');
+      put(params, options, 'height', 'height');
+      put(params, options, 'autoCrop', 'auto_crop');
+      put(params, options, 'referenceOffsetX', 'reference_offset_x');
+      put(params, options, 'referenceOffsetY', 'reference_offset_y');
+      put(params, options, 'outpaintMode', 'mode');
+      put(params, options, 'disablePup', 'disable_pup');
+      break;
+    case 'flux-vto':
+      break;
+    case 'flux-3-video':
+      put(params, options, 'videoMode', 'mode');
+      put(params, options, 'aspectRatio', 'aspect_ratio');
+      put(params, options, 'resolution', 'resolution');
+      put(params, options, 'draft', 'draft');
+      if (options.audio === false) params.generate_audio = false;
+      if (options.duration !== undefined) {
+        params.duration = options.duration === 'auto' ? 'auto' : parseInt(options.duration, 10);
+      }
+      break;
+    case 'flux-video-edit':
+      break;
+    case 'flux-video-upscale':
+      put(params, options, 'creativity', 'creativity');
+      put(params, options, 'upscaleFactor', 'upscale_factor');
+      break;
+  }
+}
+
+/**
+ * Image inputs: CLI option → API parameter. Converted to base64 before submit.
+ */
+const IMAGE_INPUTS: { option: keyof CliOptions; param: string; label: string }[] = [
   { option: 'imagePrompt', param: 'image_prompt', label: 'image prompt' },
   { option: 'image', param: 'image', label: 'image' },
   { option: 'mask', param: 'mask', label: 'mask' },
@@ -472,56 +599,150 @@ const IMAGE_INPUT_MAPPINGS: ImageInputMapping[] = [
   { option: 'inputImage6', param: 'input_image_6', label: 'input image 6' },
   { option: 'inputImage7', param: 'input_image_7', label: 'input image 7' },
   { option: 'inputImage8', param: 'input_image_8', label: 'input image 8' },
+  { option: 'person', param: 'person', label: 'person image' },
+  { option: 'garment', param: 'garment', label: 'garment image' },
 ];
 
 /**
- * Convert image inputs to base64 and add to parameters.
+ * Video inputs: CLI option → API parameter. Local files become base64; URLs pass through.
  */
-async function addImageInputs(params: GenerationParams, options: CliOptions): Promise<void> {
-  for (const { option, param, label } of IMAGE_INPUT_MAPPINGS) {
+const VIDEO_INPUTS: { option: keyof CliOptions; param: string; label: string }[] = [
+  { option: 'video', param: 'video', label: 'video' },
+  { option: 'inputVideo', param: 'input_video', label: 'input video' },
+  { option: 'startVideo', param: 'start_video', label: 'start video' },
+];
+
+/**
+ * Parse one --keyframe spec: `path-or-url` or `seconds:path-or-url`.
+ */
+async function parseKeyframe(spec: string): Promise<VideoKeyframe> {
+  const timed = /^(\d+(?:\.\d+)?):(.+)$/.exec(spec);
+  if (timed) {
+    return [parseFloat(timed[1]), await imageToBase64(timed[2])];
+  }
+  return await imageToBase64(spec);
+}
+
+/**
+ * Prepare a draft_cache input: a local .bin becomes base64; a URL passes through.
+ */
+async function prepareDraftCache(input: string): Promise<string> {
+  if (input.startsWith('http://') || input.startsWith('https://')) {
+    await validateImageUrl(input);
+    return input;
+  }
+  return await fileToBase64(input);
+}
+
+/**
+ * Convert media inputs and add to parameters.
+ */
+async function addMediaInputs(params: GenerationParams, options: CliOptions): Promise<void> {
+  for (const { option, param, label } of IMAGE_INPUTS) {
     const value = options[option];
     if (value && typeof value === 'string') {
       logger.info(`Converting ${label} to base64...`);
-      (params as unknown as Record<string, unknown>)[param] = await imageToBase64(value);
+      params[param] = await imageToBase64(value);
     }
+  }
+  for (const { option, param, label } of VIDEO_INPUTS) {
+    const value = options[option];
+    if (value && typeof value === 'string') {
+      logger.info(`Preparing ${label}...`);
+      params[param] = await videoToBase64(value);
+    }
+  }
+  if (options.keyframe && options.keyframe.length > 0) {
+    logger.info(`Converting ${options.keyframe.length} keyframe(s)...`);
+    const frames: VideoKeyframe[] = [];
+    for (const spec of options.keyframe) {
+      frames.push(await parseKeyframe(spec));
+    }
+    params.keyframes = frames.length === 1 && typeof frames[0] === 'string' ? frames[0] : frames;
+  }
+  if (options.draftCache) {
+    logger.info('Preparing draft cache...');
+    params.draft_cache = await prepareDraftCache(options.draftCache);
   }
 }
 
 /**
- * Model method mapping type
+ * Dispatch to the API method for the model. Params are built by name to match
+ * the API's request schema, so each call is a cast to that method's type.
  */
-type ModelMethod =
-  | 'generateFluxDev'
-  | 'generateFluxPro'
-  | 'generateFluxProUltra'
-  | 'generateFluxProFill'
-  | 'generateFluxProFillFinetuned'
-  | 'generateFluxProExpand'
-  | 'generateKontextPro'
-  | 'generateKontextMax'
-  | 'generateFlux2Pro'
-  | 'generateFlux2Flex';
+async function submit(
+  api: BflAPI,
+  model: ModelEndpointKey,
+  params: GenerationParams
+): Promise<SubmitResult> {
+  switch (model) {
+    case 'flux-dev':
+      return api.generateFluxDev(params as unknown as Parameters<typeof api.generateFluxDev>[0]);
+    case 'flux-pro':
+      return api.generateFluxPro(params as unknown as Parameters<typeof api.generateFluxPro>[0]);
+    case 'flux-ultra':
+      return api.generateFluxProUltra(params as unknown as Parameters<typeof api.generateFluxProUltra>[0]);
+    case 'flux-ultra-finetuned':
+      return api.generateFluxProUltraFinetuned(params as unknown as Parameters<typeof api.generateFluxProUltraFinetuned>[0]);
+    case 'flux-pro-fill':
+      return api.generateFluxProFill(params as unknown as Parameters<typeof api.generateFluxProFill>[0]);
+    case 'flux-pro-fill-finetuned':
+      return api.generateFluxProFillFinetuned(params as unknown as Parameters<typeof api.generateFluxProFillFinetuned>[0]);
+    case 'flux-pro-expand':
+      return api.generateFluxProExpand(params as unknown as Parameters<typeof api.generateFluxProExpand>[0]);
+    case 'kontext-pro':
+      return api.generateKontextPro(params as unknown as Parameters<typeof api.generateKontextPro>[0]);
+    case 'kontext-max':
+      return api.generateKontextMax(params as unknown as Parameters<typeof api.generateKontextMax>[0]);
+    case 'flux-2-pro':
+      return api.generateFlux2Pro(params as unknown as Parameters<typeof api.generateFlux2Pro>[0]);
+    case 'flux-2-flex':
+      return api.generateFlux2Flex(params as unknown as Parameters<typeof api.generateFlux2Flex>[0]);
+    case 'flux-2-max':
+      return api.generateFlux2Max(params as unknown as Parameters<typeof api.generateFlux2Max>[0]);
+    case 'flux-2-klein-4b':
+      return api.generateFlux2Klein4b(params as unknown as Parameters<typeof api.generateFlux2Klein4b>[0]);
+    case 'flux-2-klein-9b':
+      return api.generateFlux2Klein9b(params as unknown as Parameters<typeof api.generateFlux2Klein9b>[0]);
+    case 'flux-deblur':
+      return api.deblurImage(params as unknown as Parameters<typeof api.deblurImage>[0]);
+    case 'flux-erase':
+      return api.eraseImage(params as unknown as Parameters<typeof api.eraseImage>[0]);
+    case 'flux-outpaint':
+      return api.outpaintImage(params as unknown as Parameters<typeof api.outpaintImage>[0]);
+    case 'flux-vto':
+      return api.virtualTryOn(params as unknown as Parameters<typeof api.virtualTryOn>[0]);
+    case 'flux-3-video':
+      return api.generateFlux3Video(params as unknown as Flux3VideoParams);
+    case 'flux-video-edit':
+      return api.editVideo(params as unknown as Parameters<typeof api.editVideo>[0]);
+    case 'flux-video-upscale':
+      return api.upscaleVideo(params as unknown as Parameters<typeof api.upscaleVideo>[0]);
+  }
+}
 
 /**
- * Model method mapping for dispatch
+ * Render params for a dry run with base64 payloads elided.
  */
-const MODEL_METHODS: Record<ModelEndpointKey, ModelMethod> = {
-  'flux-dev': 'generateFluxDev',
-  'flux-pro': 'generateFluxPro',
-  'flux-ultra': 'generateFluxProUltra',
-  'flux-pro-fill': 'generateFluxProFill',
-  'flux-pro-fill-finetuned': 'generateFluxProFillFinetuned',
-  'flux-pro-expand': 'generateFluxProExpand',
-  'kontext-pro': 'generateKontextPro',
-  'kontext-max': 'generateKontextMax',
-  'flux-2-pro': 'generateFlux2Pro',
-  'flux-2-flex': 'generateFlux2Flex',
-};
+function summarizeParams(params: GenerationParams): string {
+  const elide = (v: unknown): unknown => {
+    if (typeof v === 'string' && v.length > 120 && !/^https?:\/\//.test(v)) {
+      return `<base64 ${v.length} chars>`;
+    }
+    if (Array.isArray(v)) return v.map(elide);
+    return v;
+  };
+  return JSON.stringify(
+    Object.fromEntries(Object.entries(params).map(([k, v]) => [k, elide(v)])),
+    null,
+    2
+  );
+}
 
 /**
- * Process a single image generation request.
+ * Process a single generation request.
  */
-async function generateImage(
+async function generate(
   api: BflAPI,
   model: ModelEndpointKey,
   prompt: string,
@@ -530,104 +751,56 @@ async function generateImage(
   total: number
 ): Promise<GenerationResult> {
   const batchPrefix = total > 1 ? `[${index + 1}/${total}] ` : '';
+  const info = MODELS[model];
 
   logger.info('='.repeat(60));
-  logger.info(`${batchPrefix}Starting image generation`);
+  logger.info(`${batchPrefix}Starting ${info.media} generation`);
   logger.info(`Model: ${model}`);
-  logger.info(`Prompt: "${prompt}"`);
+  if (prompt) logger.info(`Prompt: "${prompt}"`);
   logger.info('='.repeat(60));
 
   try {
     // Prepare parameters based on model
-    const params: GenerationParams = { prompt };
+    const params: GenerationParams = {};
+    const promptOptional = PROMPT_OPTIONAL.has(model) || options.videoMode === 'draft_enhance';
+    if (prompt || !promptOptional) params.prompt = prompt;
 
-    // Convert image inputs to base64
-    await addImageInputs(params, options);
-
-    // Add common parameters
+    await addMediaInputs(params, options);
     addCommonParams(params, options);
+    addModelParams(model, params, options);
 
-    // Add model-specific parameters
-    if (model === 'flux-dev') {
-      buildFluxDevParams(params, options);
-    } else if (model === 'flux-pro') {
-      buildFluxProParams(params, options);
-    } else if (model === 'flux-ultra') {
-      buildFluxUltraParams(params, options);
-    } else if (model === 'flux-pro-fill') {
-      buildFluxProFillParams(params, options);
-    } else if (model === 'flux-pro-fill-finetuned') {
-      buildFluxProFillFinetunedParams(params, options);
-    } else if (model === 'flux-pro-expand') {
-      buildFluxProExpandParams(params, options);
-    } else if (model === 'flux-2-pro' || model === 'flux-2-flex') {
-      buildFlux2Params(params, options);
+    // Range/enum validation against the model's constraints
+    const validation = validateModelParams(model, params);
+    if (!validation.valid) {
+      throw new Error(`Parameter validation failed:\n  - ${validation.errors.join('\n  - ')}`);
     }
-    // Note: Kontext models don't have additional parameters beyond common ones
 
     // Dry run check
     if (options.dryRun) {
       logger.info('[DRY RUN] Would generate with parameters:');
-      logger.info(JSON.stringify(params, null, 2));
+      logger.info(summarizeParams(params));
       logger.info('[DRY RUN] Skipping actual generation');
       return { success: true, dryRun: true };
     }
 
     // Submit generation request
     logger.info('Submitting generation request...');
-    const methodName = MODEL_METHODS[model];
-    if (!methodName) {
-      throw new Error(`Unknown model: ${model}`);
-    }
-
-    // Type-safe method invocation
-    let task: TaskResult;
-    switch (methodName) {
-      case 'generateFluxDev':
-        task = await api.generateFluxDev(params);
-        break;
-      case 'generateFluxPro':
-        task = await api.generateFluxPro(params);
-        break;
-      case 'generateFluxProUltra':
-        task = await api.generateFluxProUltra(params);
-        break;
-      case 'generateFluxProFill':
-        task = await api.generateFluxProFill(params as Parameters<typeof api.generateFluxProFill>[0]);
-        break;
-      case 'generateFluxProFillFinetuned':
-        task = await api.generateFluxProFillFinetuned(
-          params as Parameters<typeof api.generateFluxProFillFinetuned>[0]
-        );
-        break;
-      case 'generateFluxProExpand':
-        task = await api.generateFluxProExpand(
-          params as Parameters<typeof api.generateFluxProExpand>[0]
-        );
-        break;
-      case 'generateKontextPro':
-        task = await api.generateKontextPro(params as Parameters<typeof api.generateKontextPro>[0]);
-        break;
-      case 'generateKontextMax':
-        task = await api.generateKontextMax(params as Parameters<typeof api.generateKontextMax>[0]);
-        break;
-      case 'generateFlux2Pro':
-        task = await api.generateFlux2Pro(params);
-        break;
-      case 'generateFlux2Flex':
-        task = await api.generateFlux2Flex(params);
-        break;
-      default:
-        throw new Error(`Unknown method: ${methodName}`);
-    }
+    const task = await submit(api, model, params);
 
     logger.info(`Task submitted: ${task.id}`);
-    logger.info(`Polling URL: ${task.polling_url || 'N/A'}`);
+    if (task.cost !== undefined && task.cost !== null) logger.info(`Estimated cost: ${task.cost} credits`);
+
+    // Webhook mode: nothing to poll
+    if (!task.polling_url) {
+      logger.info(`No polling URL returned (webhook mode: ${task.webhook_url || 'n/a'})`);
+      return { success: true, taskId: task.id, prompt };
+    }
+    logger.info(`Polling URL: ${task.polling_url}`);
 
     // Wait for result with auto-polling
     const result = await api.waitForResult(task.id, {
-      pollingUrl: task.polling_url || null,
-      timeout: options.timeout || 300,
+      pollingUrl: task.polling_url,
+      timeout: options.timeout || (info.media === 'video' ? 900 : 300),
       pollInterval: 2,
       showSpinner: true,
     });
@@ -637,35 +810,43 @@ async function generateImage(
     const modelDir = path.join(outputDir, model);
     await ensureDirectory(modelDir);
 
-    // Generate filename
-    const safePrompt = promptToFilename(prompt);
-    const extension = params.output_format || 'jpeg';
-    const imageFilename = generateTimestampedFilename(
-      safePrompt,
-      extension === 'jpeg' ? 'jpg' : extension
-    );
-    const imagePath = path.join(modelDir, imageFilename);
+    // Extension: video is always mp4; images follow the requested or server-default format
+    const format = (params.output_format as OutputFormat | undefined) || info.defaultOutputFormat || 'jpeg';
+    const extension = info.media === 'video' ? 'mp4' : format === 'jpeg' ? 'jpg' : format;
+    const stem = promptToFilename(prompt || model);
+    const outputFilename = generateTimestampedFilename(stem, extension);
+    const outputPath = path.join(modelDir, outputFilename);
 
-    // Download image
-    logger.info('Downloading generated image...');
+    // Download media
     if (!result.result?.sample) {
-      throw new Error('No image URL in result');
+      throw new Error('No media URL in result');
     }
-    await downloadImage(result.result.sample, imagePath);
-    logger.info(`Image saved: ${imagePath}`);
+    logger.info(`Downloading generated ${info.media}...`);
+    if (info.media === 'video') {
+      await downloadVideo(result.result.sample, outputPath);
+    } else {
+      await downloadImage(result.result.sample, outputPath);
+    }
+    logger.info(`Saved: ${outputPath}`);
+
+    if (result.result.draft_cache) {
+      logger.info(`Draft cache URL (download promptly, expires ~1h): ${result.result.draft_cache}`);
+    }
 
     // Save metadata
-    const metadataFilename = imageFilename.replace(/\.(jpg|png)$/, '_metadata.json');
+    const metadataFilename = outputFilename.replace(/\.[a-z0-9]+$/, '_metadata.json');
     const metadataPath = path.join(modelDir, metadataFilename);
     const metadata = {
       task_id: task.id,
       model: model,
       timestamp: new Date().toISOString(),
-      parameters: params,
+      parameters: JSON.parse(summarizeParams(params)) as Record<string, unknown>,
       result: {
         status: result.status,
-        image_url: result.result.sample,
-        image_path: imagePath,
+        media_url: result.result.sample,
+        draft_cache_url: result.result.draft_cache,
+        output_path: outputPath,
+        cost: result.cost ?? task.cost,
       },
     };
     await writeToFile(metadata, metadataPath, 'json');
@@ -678,7 +859,7 @@ async function generateImage(
     return {
       success: true,
       taskId: task.id,
-      imagePath,
+      outputPath,
       metadataPath,
       metadata,
     };
@@ -697,219 +878,50 @@ async function generateImage(
 }
 
 /**
- * Validate CLI parameters based on model requirements.
+ * Validate what the constraint table cannot: required inputs and mode-specific
+ * requirements. Ranges and enums are checked per request by validateModelParams.
  */
-function validateParameters(model: ModelEndpointKey, options: CliOptions): void {
+function validateInputs(model: ModelEndpointKey, options: CliOptions): void {
   const errors: string[] = [];
 
-  // Validate dimensions (FLUX.1 dev and FLUX 1.1 pro)
-  if (model === 'flux-dev' || model === 'flux-pro') {
-    if (options.width !== undefined) {
-      if (options.width < 256 || options.width > 1440) {
-        errors.push('Width must be between 256 and 1440');
-      }
-      if (options.width % 32 !== 0) {
-        errors.push('Width must be a multiple of 32');
-      }
-    }
-
-    if (options.height !== undefined) {
-      if (options.height < 256 || options.height > 1440) {
-        errors.push('Height must be between 256 and 1440');
-      }
-      if (options.height % 32 !== 0) {
-        errors.push('Height must be a multiple of 32');
-      }
+  for (const flag of REQUIRED_INPUTS[model] ?? []) {
+    if (options[flagToOption(flag)] === undefined) {
+      errors.push(`${flag} is required for ${MODELS[model].label}`);
     }
   }
 
-  // Validate FLUX.1 dev specific parameters
-  if (model === 'flux-dev') {
-    if (options.steps !== undefined) {
-      if (options.steps < 1 || options.steps > 50) {
-        errors.push('Steps must be between 1 and 50');
-      }
-    }
-
-    if (options.guidance !== undefined) {
-      if (options.guidance < 1.5 || options.guidance > 5) {
-        errors.push('Guidance must be between 1.5 and 5');
-      }
-    }
-  }
-
-  // Validate FLUX.1 Fill [pro] specific parameters
-  if (model === 'flux-pro-fill') {
-    if (options.steps !== undefined) {
-      if (options.steps < 15 || options.steps > 50) {
-        errors.push('Steps must be between 15 and 50 for FLUX.1 Fill [pro]');
-      }
-    }
-
-    if (options.guidance !== undefined) {
-      if (options.guidance < 1.5 || options.guidance > 100) {
-        errors.push('Guidance must be between 1.5 and 100 for FLUX.1 Fill [pro]');
-      }
-    }
-
-    if (!options.image) {
-      errors.push('--image is required for FLUX.1 Fill [pro]');
-    }
-
-    // Validate mask requirement
-    if (options.image && !options.mask) {
-      const imageExt = path.extname(options.image).toLowerCase();
-      if (imageExt === '.jpg' || imageExt === '.jpeg') {
-        errors.push(
-          'FLUX.1 Fill [pro] requires --mask parameter when using JPG/JPEG images (they do not support alpha channels). Either provide --mask or use a PNG image with an alpha channel.'
-        );
-      } else if (imageExt === '.png') {
-        // PNG can have alpha channel, but warn user
-        logger.warn(
-          'Using PNG without --mask parameter. The PNG must contain an alpha channel (transparency) to define the mask area, otherwise the API will reject it.'
-        );
-      }
+  // Fill models: JPEG has no alpha channel, so a mask is mandatory
+  if ((model === 'flux-pro-fill' || model === 'flux-pro-fill-finetuned') && options.image && !options.mask) {
+    const imageExt = path.extname(options.image).toLowerCase();
+    if (imageExt === '.jpg' || imageExt === '.jpeg') {
+      errors.push(
+        `${MODELS[model].label} requires --mask when using JPG/JPEG images (they do not support alpha channels). Either provide --mask or use a PNG image with an alpha channel.`
+      );
+    } else if (imageExt === '.png') {
+      logger.warn(
+        'Using PNG without --mask parameter. The PNG must contain an alpha channel (transparency) to define the mask area, otherwise the API will reject it.'
+      );
     }
   }
 
-  // Validate FLUX.1 Fill [pro] Finetune specific parameters
-  if (model === 'flux-pro-fill-finetuned') {
-    if (!options.finetuneId) {
-      errors.push('--finetune-id is required for FLUX.1 Fill [pro] Finetune');
+  // FLUX 3 video: mode and its required input
+  if (model === 'flux-3-video') {
+    if (!options.videoMode) {
+      errors.push('--video-mode is required for FLUX 3 Video (t2v, i2v, v2v, draft_enhance)');
+    } else if (options.videoMode === 'i2v' && !(options.keyframe && options.keyframe.length)) {
+      errors.push('--keyframe is required for --video-mode i2v');
+    } else if (options.videoMode === 'v2v' && !options.startVideo) {
+      errors.push('--start-video is required for --video-mode v2v');
+    } else if (options.videoMode === 'draft_enhance' && !options.draftCache) {
+      errors.push('--draft-cache is required for --video-mode draft_enhance');
     }
-
-    if (options.finetuneStrength !== undefined) {
-      if (options.finetuneStrength < 0 || options.finetuneStrength > 2) {
-        errors.push('Finetune strength must be between 0 and 2');
-      }
-    }
-
-    if (options.steps !== undefined) {
-      if (options.steps < 15 || options.steps > 50) {
-        errors.push('Steps must be between 15 and 50 for FLUX.1 Fill [pro] Finetune');
-      }
-    }
-
-    if (options.guidance !== undefined) {
-      if (options.guidance < 1.5 || options.guidance > 100) {
-        errors.push('Guidance must be between 1.5 and 100 for FLUX.1 Fill [pro] Finetune');
-      }
-    }
-
-    if (!options.image) {
-      errors.push('--image is required for FLUX.1 Fill [pro] Finetune');
-    }
-
-    // Validate mask requirement (same as regular Fill)
-    if (options.image && !options.mask) {
-      const imageExt = path.extname(options.image).toLowerCase();
-      if (imageExt === '.jpg' || imageExt === '.jpeg') {
-        errors.push(
-          'FLUX.1 Fill [pro] Finetune requires --mask parameter when using JPG/JPEG images (they do not support alpha channels). Either provide --mask or use a PNG image with an alpha channel.'
-        );
-      } else if (imageExt === '.png') {
-        // PNG can have alpha channel, but warn user
-        logger.warn(
-          'Using PNG without --mask parameter. The PNG must contain an alpha channel (transparency) to define the mask area, otherwise the API will reject it.'
-        );
-      }
-    }
-  }
-
-  // Validate FLUX.1 Expand [pro] specific parameters
-  if (model === 'flux-pro-expand') {
-    if (options.steps !== undefined) {
-      if (options.steps < 15 || options.steps > 50) {
-        errors.push('Steps must be between 15 and 50 for FLUX.1 Expand [pro]');
-      }
-    }
-
-    if (options.guidance !== undefined) {
-      if (options.guidance < 1.5 || options.guidance > 100) {
-        errors.push('Guidance must be between 1.5 and 100 for FLUX.1 Expand [pro]');
-      }
-    }
-
-    if (!options.image) {
-      errors.push('--image is required for FLUX.1 Expand [pro]');
-    }
-
-    // Validate expansion parameters
-    if (options.top !== undefined && (options.top < 0 || options.top > 2048)) {
-      errors.push('--top must be between 0 and 2048');
-    }
-    if (options.bottom !== undefined && (options.bottom < 0 || options.bottom > 2048)) {
-      errors.push('--bottom must be between 0 and 2048');
-    }
-    if (options.left !== undefined && (options.left < 0 || options.left > 2048)) {
-      errors.push('--left must be between 0 and 2048');
-    }
-    if (options.right !== undefined && (options.right < 0 || options.right > 2048)) {
-      errors.push('--right must be between 0 and 2048');
-    }
-  }
-
-  // Validate safety tolerance
-  if (options.safetyTolerance !== undefined) {
-    if (options.safetyTolerance < 0 || options.safetyTolerance > 6) {
-      errors.push('Safety tolerance must be between 0 and 6');
-    }
-  }
-
-  // Validate aspect ratio format (FLUX Ultra)
-  if (model === 'flux-ultra' && options.aspectRatio) {
-    const validRatios = ['21:9', '16:9', '4:3', '1:1', '3:4', '9:16', '9:21'];
-    if (!validRatios.includes(options.aspectRatio)) {
-      errors.push(`Aspect ratio must be one of: ${validRatios.join(', ')}`);
-    }
-  }
-
-  // Validate image prompt strength (FLUX Ultra)
-  if (model === 'flux-ultra' && options.imagePromptStrength !== undefined) {
-    if (options.imagePromptStrength < 0 || options.imagePromptStrength > 1) {
-      errors.push('Image prompt strength must be between 0 and 1');
-    }
-  }
-
-  // Validate output format
-  if (options.outputFormat) {
-    const validFormats = ['jpeg', 'png'];
-    if (!validFormats.includes(options.outputFormat)) {
-      errors.push(`Output format must be one of: ${validFormats.join(', ')}`);
-    }
-  }
-
-  // Validate FLUX.2 models (PRO and FLEX)
-  if (model === 'flux-2-pro' || model === 'flux-2-flex') {
-    // Validate dimensions (64-2048, multiple of 16)
-    if (options.width !== undefined) {
-      if (options.width < 64 || options.width > 2048) {
-        errors.push('Width must be between 64 and 2048 for FLUX.2 models');
-      }
-      if (options.width % 16 !== 0) {
-        errors.push('Width must be a multiple of 16 for FLUX.2 models');
-      }
-    }
-
-    if (options.height !== undefined) {
-      if (options.height < 64 || options.height > 2048) {
-        errors.push('Height must be between 64 and 2048 for FLUX.2 models');
-      }
-      if (options.height % 16 !== 0) {
-        errors.push('Height must be a multiple of 16 for FLUX.2 models');
-      }
-    }
-
-    // Validate safety tolerance (0-5 for FLUX.2)
-    if (options.safetyTolerance !== undefined) {
-      if (options.safetyTolerance < 0 || options.safetyTolerance > 5) {
-        errors.push('Safety tolerance must be between 0 and 5 for FLUX.2 models');
-      }
+    if (options.videoMode === 'draft_enhance' && options.prompt.length > 0) {
+      logger.warn('--prompt is ignored for --video-mode draft_enhance (the draft cache pins it)');
     }
   }
 
   if (errors.length > 0) {
-    throw new Error(`Parameter validation failed:\n  - ${errors.join('\n  - ')}`);
+    throw new Error(`Input validation failed:\n  - ${errors.join('\n  - ')}`);
   }
 }
 
@@ -919,62 +931,76 @@ function validateParameters(model: ModelEndpointKey, options: CliOptions): void 
 async function main(): Promise<void> {
   const program = new Command();
 
-  program.name('bfl').description('Generate images using Black Forest Labs API').version(version);
+  program
+    .name('bfl')
+    .description('Generate images and video using the Black Forest Labs API')
+    .version(version);
 
   // Model selection (mutually exclusive)
   program
-    .option('--flux-dev', 'Use FLUX.1 [dev] model (full control over steps/guidance)')
-    .option('--flux-pro', 'Use FLUX 1.1 [pro] model (professional quality with Redux)')
-    .option('--flux-ultra', 'Use FLUX 1.1 [pro] Ultra model (aspect ratios and raw mode)')
-    .option('--flux-fill', 'Use FLUX.1 Fill [pro] model (inpainting with masks)')
-    .option(
-      '--flux-fill-finetuned',
-      'Use FLUX.1 Fill [pro] with fine-tuned model (custom model inpainting)'
-    )
-    .option('--flux-expand', 'Use FLUX.1 Expand [pro] model (expand/outpaint images)')
-    .option('--kontext-pro', 'Use Kontext Pro model (multi-reference editing)')
-    .option('--kontext-max', 'Use Kontext Max model (maximum quality editing)')
-    .option('--flux-2-pro', 'Use FLUX.2 [PRO] model (generate/edit with multi-image)')
-    .option('--flux-2-flex', 'Use FLUX.2 [FLEX] model (generate/edit with multi-image)');
+    .option('--flux-dev', 'FLUX.1 [dev] (full control over steps/guidance)')
+    .option('--flux-pro', 'FLUX 1.1 [pro] (professional quality with Redux)')
+    .option('--flux-ultra', 'FLUX 1.1 [pro] Ultra (aspect ratios and raw mode)')
+    .option('--flux-ultra-finetuned', 'FLUX 1.1 [pro] Ultra with a fine-tuned model')
+    .option('--flux-fill', 'FLUX.1 Fill [pro] (inpainting with masks)')
+    .option('--flux-fill-finetuned', 'FLUX.1 Fill [pro] with a fine-tuned model')
+    .option('--flux-expand', 'FLUX.1 Expand [pro] (expand by pixels per side)')
+    .option('--kontext-pro', 'Kontext Pro (multi-reference editing or text-to-image)')
+    .option('--kontext-max', 'Kontext Max (maximum quality editing)')
+    .option('--flux-2-pro', 'FLUX.2 [pro] (generate/edit, up to 8 references)')
+    .option('--flux-2-flex', 'FLUX.2 [flex] (generate/edit with guidance/steps control)')
+    .option('--flux-2-max', 'FLUX.2 [max] (highest quality, up to 8 references)')
+    .option('--flux-2-klein-4b', 'FLUX.2 [klein] 4B (fastest, up to 4 references)')
+    .option('--flux-2-klein-9b', 'FLUX.2 [klein] 9B (fast, up to 4 references)')
+    .option('--flux-deblur', 'FLUX Deblur (image only)')
+    .option('--flux-erase', 'FLUX Erase (remove masked object)')
+    .option('--flux-outpaint', 'FLUX Outpaint (place image on a larger canvas)')
+    .option('--flux-vto', 'FLUX Virtual Try-On (person + garment)')
+    .option('--flux-3-video', 'FLUX 3 Video (t2v / i2v / v2v / draft_enhance)')
+    .option('--flux-video-edit', 'FLUX Video Edit (video + instruction)')
+    .option('--flux-video-upscale', 'FLUX Video Upscale');
 
   // Common parameters
   program
     .option('--prompt <text...>', 'Text prompt(s) for generation (can specify multiple)', [])
     .option('--seed <number>', 'Random seed for reproducibility', parseInt)
-    .option('--safety-tolerance <number>', 'Content moderation level (0-6, default: 2)', parseInt)
-    .option('--output-format <format>', 'Output format: jpeg or png (default: jpeg)')
-    .option('--prompt-upsampling', 'Enable AI prompt enhancement');
+    .option(
+      '--safety-tolerance <number>',
+      'Content moderation level (0-6 FLUX.1, 0-5 FLUX.2/tools, 0-4 video; default: 2)',
+      parseInt
+    )
+    .option('--output-format <format>', 'Output format: jpeg, png or webp (image models)')
+    .option('--prompt-upsampling', 'Enable AI prompt enhancement (FLUX.1, Kontext, FLUX.2 [flex])')
+    .option('--disable-pup', 'Disable prompt upsampling (FLUX.2 [pro]/[max], Outpaint — on by default)')
+    .option('--user <id>', 'Opaque end-user identifier forwarded to the API')
+    .option('--webhook-url <url>', 'Receive the result by webhook instead of polling')
+    .option('--webhook-secret <secret>', 'Secret used to sign the webhook');
 
-  // FLUX.1 [dev] specific
+  // Dimensions / sampling
   program
-    .option('--width <number>', 'Image width (256-1440, multiple of 32)', parseInt)
-    .option('--height <number>', 'Image height (256-1440, multiple of 32)', parseInt)
-    .option('--steps <number>', 'Inference steps (1-50, default: 28)', parseInt)
-    .option('--guidance <number>', 'Guidance scale (1.5-5, default: 3)', parseFloat);
-
-  // FLUX Ultra specific
-  program
-    .option('--aspect-ratio <ratio>', 'Aspect ratio (e.g., 16:9, 21:9, 1:1)')
-    .option('--raw', 'Enable raw/natural mode');
+    .option('--width <number>', 'Image width (FLUX.1: 256-1440/32; FLUX.2: ≥64; Outpaint: canvas)', parseInt)
+    .option('--height <number>', 'Image height (see --width)', parseInt)
+    .option('--steps <number>', 'Inference steps (dev 1-50, fill/expand 15-50, flex 1-50)', parseInt)
+    .option('--guidance <number>', 'Guidance scale (dev 1.5-5, fill/expand 1.5-100, flex 1.5-10)', parseFloat)
+    .option('--aspect-ratio <ratio>', 'Aspect ratio (e.g. 16:9, 21:9, 1:1; video also 2:1 and auto)')
+    .option('--raw', 'Enable raw/natural mode (Ultra)');
 
   // Image inputs
   program
     .option('--image-prompt <path>', 'Input image for Redux/remix (file path or URL)')
-    .option(
-      '--image-prompt-strength <number>',
-      'Remix strength for Ultra (0-1, default: 0.1)',
-      parseFloat
-    )
-    .option('--image <path>', 'Input image for Fill inpainting (file path or URL)')
-    .option('--mask <path>', 'Mask image for Fill inpainting (file path or URL, optional)')
-    .option('--input-image <path>', 'Primary input image for Kontext (file path or URL)')
-    .option('--input-image-2 <path>', 'Additional reference image for Kontext')
-    .option('--input-image-3 <path>', 'Additional reference image for Kontext')
-    .option('--input-image-4 <path>', 'Additional reference image for Kontext')
-    .option('--input-image-5 <path>', 'Additional reference image (FLUX.2 experimental multiref)')
-    .option('--input-image-6 <path>', 'Additional reference image (FLUX.2 experimental multiref)')
-    .option('--input-image-7 <path>', 'Additional reference image (FLUX.2 experimental multiref)')
-    .option('--input-image-8 <path>', 'Additional reference image (FLUX.2 experimental multiref)');
+    .option('--image-prompt-strength <number>', 'Remix strength for Ultra (0-1, default: 0.1)', parseFloat)
+    .option('--image <path>', 'Input image for Fill / Expand / Deblur / Erase (file path or URL)')
+    .option('--mask <path>', 'Mask image for Fill (optional) / Erase (required)')
+    .option('--input-image <path>', 'Primary input image (Kontext, FLUX.2, Outpaint)')
+    .option('--input-image-2 <path>', 'Additional reference image')
+    .option('--input-image-3 <path>', 'Additional reference image')
+    .option('--input-image-4 <path>', 'Additional reference image')
+    .option('--input-image-5 <path>', 'Additional reference image (FLUX.2 pro/flex/max)')
+    .option('--input-image-6 <path>', 'Additional reference image (FLUX.2 pro/flex/max)')
+    .option('--input-image-7 <path>', 'Additional reference image (FLUX.2 pro/flex/max)')
+    .option('--input-image-8 <path>', 'Additional reference image (FLUX.2 pro/flex/max)')
+    .option('--person <path>', 'Person image (Virtual Try-On)')
+    .option('--garment <path>', 'Garment image (Virtual Try-On)');
 
   // FLUX.1 Expand [pro] specific
   program
@@ -983,10 +1009,33 @@ async function main(): Promise<void> {
     .option('--left <number>', 'Pixels to expand on left (0-2048, default: 0)', parseInt)
     .option('--right <number>', 'Pixels to expand on right (0-2048, default: 0)', parseInt);
 
-  // FLUX.1 Fill [pro] Finetune specific
+  // Finetune specific
   program
-    .option('--finetune-id <id>', 'Fine-tuned model ID (required for --flux-fill-finetuned)')
-    .option('--finetune-strength <number>', 'Finetune strength (0-2, default: 1.1)', parseFloat);
+    .option('--finetune-id <id>', 'Fine-tuned model ID (Fill finetune, Ultra finetune)')
+    .option('--finetune-strength <number>', 'Finetune strength (0-2)', parseFloat);
+
+  // FLUX Tools (image)
+  program
+    .option('--dilate-pixels <number>', 'Erase: dilate the mask by N pixels (0-25, default: 10)', parseInt)
+    .option('--auto-crop', 'Outpaint: crop the input to the canvas instead of erroring')
+    .option('--reference-offset-x <number>', 'Outpaint: left offset of the image on the canvas (px)', parseInt)
+    .option('--reference-offset-y <number>', 'Outpaint: top offset of the image on the canvas (px)', parseInt)
+    .option('--outpaint-mode <mode>', 'Outpaint: high (default) or fast');
+
+  // Video
+  program
+    .option('--video-mode <mode>', 'FLUX 3 Video mode: t2v, i2v, v2v, draft_enhance')
+    .option('--keyframe <spec...>', 'i2v keyframes: path/URL, or seconds:path for timed frames')
+    .option('--start-video <path>', 'v2v: video to continue (file path or URL)')
+    .option('--draft-cache <path>', 'draft_enhance: the draft .bin file (or its URL)')
+    .option('--duration <seconds>', 'Video duration in whole seconds (5-20; v2v 5-15) or auto')
+    .option('--resolution <tier>', 'Video resolution: hd (default), fhd, qhd, uhd')
+    .option('--no-audio', 'Do not generate synchronized audio')
+    .option('--draft', 'Fast draft render; returns a draft_cache for later enhancement')
+    .option('--video <path>', 'Video Edit: video to edit (file path or URL)')
+    .option('--input-video <path>', 'Video Upscale: video to upscale (file path or URL)')
+    .option('--creativity <0|1>', 'Video Upscale: 0 preserve source, 1 enhance detail (default: 1)', parseInt)
+    .option('--upscale-factor <number>', 'Video Upscale: 1.5-3 (default: 2)', parseFloat);
 
   // Utility options
   program
@@ -994,8 +1043,11 @@ async function main(): Promise<void> {
     .option('--examples', 'Show usage examples and exit')
     .option('--credits', 'Check account credits balance')
     .option('--list-finetunes', 'List all your fine-tuned models')
+    .option('--finetune-details <id>', 'Show training parameters for a finetune')
+    .option('--delete-finetune <id>', 'Delete a finetune (requires --yes)')
+    .option('--yes', 'Confirm a destructive action')
     .option('--get-result <id>', 'Poll specific task ID for result')
-    .option('--timeout <seconds>', 'Maximum wait time (default: 300)', parseInt)
+    .option('--timeout <seconds>', 'Maximum wait time (default: 300 image, 900 video)', parseInt)
     .option('--output-dir <path>', 'Custom output directory')
     .option('--log-level <level>', 'Logging level (DEBUG, INFO, WARNING, ERROR)', 'INFO')
     .option('--dry-run', 'Preview without generating');
@@ -1019,27 +1071,31 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
-  // Handle credits check
-  if (options.credits) {
+  // Utility commands: each constructs the API, runs, and exits.
+  const utility = async (label: string, run: (api: BflAPI) => Promise<void>): Promise<never> => {
     try {
       const api = new BflAPI({ apiKey: options.apiKey, logLevel: options.logLevel });
+      await run(api);
+      process.exit(0);
+    } catch (error) {
+      const err = error as Error;
+      logger.error(`Failed to ${label}: ${err.message}`);
+      process.exit(1);
+    }
+  };
+
+  if (options.credits) {
+    await utility('fetch credits', async (api) => {
       const credits = await api.getUserCredits();
       logger.info('');
       logger.info('Account Credits:');
       logger.info(`  Credits: ${credits.credits}`);
       logger.info('');
-      process.exit(0);
-    } catch (error) {
-      const err = error as Error;
-      logger.error(`Failed to fetch credits: ${err.message}`);
-      process.exit(1);
-    }
+    });
   }
 
-  // Handle list-finetunes
   if (options.listFinetunes) {
-    try {
-      const api = new BflAPI({ apiKey: options.apiKey, logLevel: options.logLevel });
+    await utility('fetch finetunes', async (api) => {
       const { finetunes } = await api.getMyFinetunes();
       logger.info('');
       logger.info('Your Fine-tuned Models:');
@@ -1051,52 +1107,65 @@ async function main(): Promise<void> {
         logger.info('  No fine-tuned models found.');
       }
       logger.info('');
-      process.exit(0);
-    } catch (error) {
-      const err = error as Error;
-      logger.error(`Failed to fetch finetunes: ${err.message}`);
-      process.exit(1);
-    }
+    });
   }
 
-  // Handle get-result
+  if (options.finetuneDetails) {
+    await utility('fetch finetune details', async (api) => {
+      const details = await api.getFinetuneDetails(options.finetuneDetails as string);
+      logger.info('');
+      logger.info(JSON.stringify(details, null, 2));
+      logger.info('');
+    });
+  }
+
+  if (options.deleteFinetune) {
+    if (!options.yes) {
+      logger.error(
+        `Refusing to delete finetune "${options.deleteFinetune}" without --yes (deletion is irreversible)`
+      );
+      process.exit(1);
+    }
+    await utility('delete finetune', async (api) => {
+      const result = await api.deleteFinetune(options.deleteFinetune as string);
+      logger.info('');
+      logger.info(`${result.status}: ${result.message} (${result.deleted_finetune_id})`);
+      logger.info('');
+    });
+  }
+
   if (options.getResult) {
-    try {
-      const api = new BflAPI({ apiKey: options.apiKey, logLevel: options.logLevel });
-      const result = await api.getResult(options.getResult);
+    await utility('get result', async (api) => {
+      const result = await api.getResult(options.getResult as string);
       logger.info('');
       logger.info(JSON.stringify(result, null, 2));
       logger.info('');
-      process.exit(0);
-    } catch (error) {
-      const err = error as Error;
-      logger.error(`Failed to get result: ${err.message}`);
-      process.exit(1);
-    }
+    });
   }
 
   // Validate model selection
-  const model = getSelectedModel(options);
+  let model: ModelEndpointKey | null;
+  try {
+    model = getSelectedModel(options);
+  } catch (error) {
+    logger.error(`Error: ${(error as Error).message}`);
+    process.exit(1);
+  }
   if (!model) {
     program.outputHelp();
     process.exit(1);
   }
 
   // Validate prompts
-  if (!options.prompt || options.prompt.length === 0) {
-    program.outputHelp();
+  const prompts = options.prompt && options.prompt.length > 0 ? options.prompt : [''];
+  if (prompts[0] === '' && !PROMPT_OPTIONAL.has(model) && options.videoMode !== 'draft_enhance') {
+    logger.error(`Error: ${MODELS[model].label} requires --prompt`);
     process.exit(1);
   }
 
-  // Validate Kontext models require input image
-  if ((model === 'kontext-pro' || model === 'kontext-max') && !options.inputImage) {
-    logger.error(`Error: ${model} requires --input-image`);
-    process.exit(1);
-  }
-
-  // Validate parameters
+  // Validate inputs
   try {
-    validateParameters(model, options);
+    validateInputs(model, options);
   } catch (error) {
     const err = error as Error;
     logger.error(`Error: ${err.message}`);
@@ -1105,10 +1174,10 @@ async function main(): Promise<void> {
 
   // Print configuration
   logger.info('='.repeat(60));
-  logger.info('BFL IMAGE GENERATION');
+  logger.info(`BFL ${MODELS[model].media.toUpperCase()} GENERATION`);
   logger.info('='.repeat(60));
   logger.info(`Model: ${model}`);
-  logger.info(`Prompts: ${options.prompt.length}`);
+  logger.info(`Prompts: ${prompts.length}`);
   logger.info(`Dry run: ${options.dryRun || false}`);
   logger.info(`Log level: ${options.logLevel}`);
   logger.info('');
@@ -1122,13 +1191,12 @@ async function main(): Promise<void> {
 
     // Process each prompt sequentially
     const results: GenerationResult[] = [];
-    for (let i = 0; i < options.prompt.length; i++) {
-      const prompt = options.prompt[i];
-      const result = await generateImage(api, model, prompt, options, i, options.prompt.length);
+    for (let i = 0; i < prompts.length; i++) {
+      const result = await generate(api, model, prompts[i], options, i, prompts.length);
       results.push(result);
 
       // Small pause between generations in batch mode
-      if (i < options.prompt.length - 1 && !options.dryRun) {
+      if (i < prompts.length - 1 && !options.dryRun) {
         logger.info('Pausing before next generation...');
         await new Promise((resolve) => setTimeout(resolve, 2000));
       }
@@ -1149,11 +1217,11 @@ async function main(): Promise<void> {
 
     if (!options.dryRun && successful > 0) {
       logger.info('');
-      logger.info('Generated images:');
+      logger.info('Generated outputs:');
       results
-        .filter((r) => r.success && r.imagePath)
+        .filter((r) => r.success && r.outputPath)
         .forEach((r) => {
-          logger.info(`  - ${r.imagePath}`);
+          logger.info(`  - ${r.outputPath}`);
         });
     }
 

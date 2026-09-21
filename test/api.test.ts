@@ -45,9 +45,9 @@ describe('BflAPI Class', () => {
       expect(BASE_URL.startsWith('https://')).toBe(true);
     });
 
-    it('should have all 10 model endpoints', () => {
+    it('should have all 21 model endpoints', () => {
       expect(MODEL_ENDPOINTS).toBeDefined();
-      expect(Object.keys(MODEL_ENDPOINTS)).toHaveLength(10);
+      expect(Object.keys(MODEL_ENDPOINTS)).toHaveLength(21);
     });
 
     it('should have valid endpoint paths', () => {
@@ -374,10 +374,31 @@ describe('BflAPI Class', () => {
       expect(result.id).toBe('task_kontext_pro_123');
     });
 
-    it('should throw error if input_image is missing', async () => {
-      await expect(
-        api.generateKontextPro({ prompt: 'test' } as Parameters<typeof api.generateKontextPro>[0])
-      ).rejects.toThrow('input_image is required for Kontext Pro');
+    it('should generate from text alone when input_image is omitted', async () => {
+      mockedAxios.post.mockResolvedValue({ data: { id: 'task_123', polling_url: '' } });
+
+      await api.generateKontextPro({ prompt: 'a lighthouse in a storm', aspect_ratio: '16:9' });
+
+      const payload = mockedAxios.post.mock.calls[0][1] as Record<string, unknown>;
+      expect(payload).toEqual({ prompt: 'a lighthouse in a storm', aspect_ratio: '16:9' });
+      expect(payload).not.toHaveProperty('input_image');
+    });
+
+    it('should pass aspect_ratio and prompt_upsampling through', async () => {
+      mockedAxios.post.mockResolvedValue({ data: { id: 'task_123', polling_url: '' } });
+
+      await api.generateKontextPro({
+        prompt: 'test',
+        input_image: 'img',
+        aspect_ratio: '1:1',
+        prompt_upsampling: true,
+      });
+
+      expect(mockedAxios.post).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ aspect_ratio: '1:1', prompt_upsampling: true }),
+        expect.any(Object)
+      );
     });
 
     it('should handle multiple reference images', async () => {
@@ -434,10 +455,13 @@ describe('BflAPI Class', () => {
       expect(result.id).toBe('task_kontext_max_123');
     });
 
-    it('should throw error if input_image is missing', async () => {
-      await expect(
-        api.generateKontextMax({ prompt: 'test' } as Parameters<typeof api.generateKontextMax>[0])
-      ).rejects.toThrow('input_image is required for Kontext Max');
+    it('should generate from text alone when input_image is omitted', async () => {
+      mockedAxios.post.mockResolvedValue({ data: { id: 'task_123', polling_url: '' } });
+
+      await api.generateKontextMax({ prompt: 'test' });
+
+      const payload = mockedAxios.post.mock.calls[0][1] as Record<string, unknown>;
+      expect(payload).not.toHaveProperty('input_image');
     });
   });
 
@@ -900,8 +924,7 @@ describe('BflAPI Class', () => {
         expect.objectContaining({
           prompt: 'a majestic castle on a cliff',
           width: 1024,
-          height: 1024,
-          prompt_upsampling: true  // default
+          height: 1024
         }),
         expect.objectContaining({
           headers: expect.objectContaining({
@@ -916,34 +939,31 @@ describe('BflAPI Class', () => {
       expect(result.output_mp).toBe(1.05);
     });
 
-    it('should use prompt_upsampling true as default', async () => {
+    it('should not send prompt_upsampling (the field no longer exists on Flux2Inputs)', async () => {
       const mockResponse = { data: { id: 'task_123', polling_url: '' } };
       mockedAxios.post.mockResolvedValue(mockResponse);
 
       await api.generateFlux2Pro({ prompt: 'test prompt' });
 
-      expect(mockedAxios.post).toHaveBeenCalledWith(
-        expect.any(String),
-        expect.objectContaining({
-          prompt_upsampling: true
-        }),
-        expect.any(Object)
-      );
+      const payload = mockedAxios.post.mock.calls[0][1] as Record<string, unknown>;
+      expect(payload).toEqual({ prompt: 'test prompt' });
+      expect(payload).not.toHaveProperty('prompt_upsampling');
+      expect(payload).not.toHaveProperty('disable_pup');
     });
 
-    it('should allow overriding prompt_upsampling to false', async () => {
+    it('should send disable_pup when set', async () => {
       const mockResponse = { data: { id: 'task_123', polling_url: '' } };
       mockedAxios.post.mockResolvedValue(mockResponse);
 
       await api.generateFlux2Pro({
         prompt: 'test prompt',
-        prompt_upsampling: false
+        disable_pup: true
       });
 
       expect(mockedAxios.post).toHaveBeenCalledWith(
         expect.any(String),
         expect.objectContaining({
-          prompt_upsampling: false
+          disable_pup: true
         }),
         expect.any(Object)
       );
@@ -1062,8 +1082,11 @@ describe('BflAPI Class', () => {
         seed: 12345,
         safety_tolerance: 2,
         output_format: 'png',
-        prompt_upsampling: false,
-        input_image: 'data:image/png;base64,img1'
+        disable_pup: true,
+        input_image: 'data:image/png;base64,img1',
+        user: 'end-user-42',
+        webhook_url: 'https://example.com/hook',
+        webhook_secret: 's3cret'
       });
 
       expect(mockedAxios.post).toHaveBeenCalledWith(
@@ -1075,8 +1098,11 @@ describe('BflAPI Class', () => {
           seed: 12345,
           safety_tolerance: 2,
           output_format: 'png',
-          prompt_upsampling: false,
-          input_image: 'data:image/png;base64,img1'
+          disable_pup: true,
+          input_image: 'data:image/png;base64,img1',
+          user: 'end-user-42',
+          webhook_url: 'https://example.com/hook',
+          webhook_secret: 's3cret'
         }),
         expect.any(Object)
       );
@@ -1107,8 +1133,7 @@ describe('BflAPI Class', () => {
         expect.objectContaining({
           prompt: 'a serene Japanese garden',
           width: 1024,
-          height: 768,
-          prompt_upsampling: true  // default
+          height: 768
         }),
         expect.objectContaining({
           headers: expect.objectContaining({
@@ -1121,17 +1146,25 @@ describe('BflAPI Class', () => {
       expect(result.cost).toBe(3.0);
     });
 
-    it('should use prompt_upsampling true as default', async () => {
+    it('should leave prompt_upsampling to the server default (true) when unset', async () => {
       const mockResponse = { data: { id: 'task_123', polling_url: '' } };
       mockedAxios.post.mockResolvedValue(mockResponse);
 
       await api.generateFlux2Flex({ prompt: 'test prompt' });
 
+      const payload = mockedAxios.post.mock.calls[0][1] as Record<string, unknown>;
+      expect(payload).toEqual({ prompt: 'test prompt' });
+    });
+
+    it('should pass guidance, steps and prompt_upsampling through', async () => {
+      const mockResponse = { data: { id: 'task_123', polling_url: '' } };
+      mockedAxios.post.mockResolvedValue(mockResponse);
+
+      await api.generateFlux2Flex({ prompt: 'test', guidance: 4, steps: 30, prompt_upsampling: false });
+
       expect(mockedAxios.post).toHaveBeenCalledWith(
         expect.any(String),
-        expect.objectContaining({
-          prompt_upsampling: true
-        }),
+        expect.objectContaining({ guidance: 4, steps: 30, prompt_upsampling: false }),
         expect.any(Object)
       );
     });
@@ -1350,32 +1383,83 @@ describe('BflAPI Class', () => {
       expect(mockedAxios.get).toHaveBeenCalledTimes(3);
     });
 
-    it('should handle Request Moderated status and continue polling', async () => {
-      let pollCount = 0;
+    it('should treat Request Moderated as terminal and not retry', async () => {
+      mockedAxios.get.mockResolvedValue({
+        data: { id: 'task_123', status: 'Request Moderated' }
+      });
 
+      await expect(
+        api.waitForResult('task_123', { pollInterval: 0.01, showSpinner: false })
+      ).rejects.toThrow('Request was moderated');
+      expect(mockedAxios.get).toHaveBeenCalledTimes(1);
+    });
+
+    it('should keep polling through Reasoning and Generating', async () => {
+      const statuses = ['Pending', 'Reasoning', 'Generating', 'Generating', 'Ready'];
+      let pollCount = 0;
       mockedAxios.get.mockImplementation(() => {
-        pollCount++;
-        if (pollCount === 1) {
-          return Promise.resolve({
-            data: { id: 'task_123', status: 'Request Moderated' }
-          });
-        }
+        const status = statuses[pollCount++];
         return Promise.resolve({
-          data: {
-            id: 'task_123',
-            status: 'Ready',
-            result: { sample: 'https://example.com/image.png' }
-          }
+          data:
+            status === 'Ready'
+              ? { id: 'task_123', status, result: { sample: 'https://example.com/video.mp4' } }
+              : { id: 'task_123', status, progress: pollCount / 10 }
         });
       });
 
-      const result = await api.waitForResult('task_123', {
-        pollInterval: 0.01,
-        showSpinner: false
+      const result = await api.waitForResult('task_123', { pollInterval: 0.01, showSpinner: false });
+
+      expect(pollCount).toBe(5);
+      expect(result.result?.sample).toBe('https://example.com/video.mp4');
+    });
+
+    it('should throw immediately on Task not found', async () => {
+      mockedAxios.get.mockResolvedValue({ data: { id: 'nope', status: 'Task not found' } });
+
+      await expect(
+        api.waitForResult('nope', { pollInterval: 0.01, showSpinner: false })
+      ).rejects.toThrow('Task not found: nope');
+      expect(mockedAxios.get).toHaveBeenCalledTimes(1);
+    });
+
+    it('should prefer details.error over result.error on Error status', async () => {
+      mockedAxios.get.mockResolvedValue({
+        data: {
+          id: 'task_123',
+          status: 'Error',
+          result: { error: 'legacy' },
+          details: { error: 'Clip cannot be used as a reference' }
+        }
       });
 
-      expect(pollCount).toBe(2);
+      await expect(
+        api.waitForResult('task_123', { pollInterval: 0.01, showSpinner: false })
+      ).rejects.toThrow('Generation failed: Clip cannot be used as a reference');
+    });
+
+    it('should honour Retry-After on a transient polling error', async () => {
+      let pollCount = 0;
+      mockedAxios.get.mockImplementation(() => {
+        pollCount++;
+        if (pollCount === 1) {
+          const err = new Error('Request failed with status code 503') as Error & {
+            response: { status: number; headers: Record<string, string> };
+          };
+          err.response = { status: 503, headers: { 'retry-after': '0.01' } };
+          return Promise.reject(err);
+        }
+        return Promise.resolve({
+          data: { id: 'task_123', status: 'Ready', result: { sample: 'https://example.com/x.png' } }
+        });
+      });
+
+      const started = Date.now();
+      const result = await api.waitForResult('task_123', { pollInterval: 0.01, showSpinner: false });
+
       expect(result.status).toBe('Ready');
+      expect(pollCount).toBe(2);
+      // Backoff would have been 2s; Retry-After said 10ms.
+      expect(Date.now() - started).toBeLessThan(1500);
     });
   });
 
