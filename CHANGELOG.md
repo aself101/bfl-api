@@ -89,6 +89,13 @@ Design rationale in `docs/DECISIONS.md`.
   writes `polling_url` into every metadata file and `--get-result` takes
   `--polling-url` (found live: a task submitted via `api.bfl.ai` was served
   from `api.eu2.bfl.ai`).
+- A poll that answers HTTP 422 with a task body (`{status: "Error", details:
+  {error}}` — video endpoints do this) is now returned as the result, so
+  `waitForResult` reports `details.error` instead of "Request failed with
+  status code 422" (found live on v2v; see `docs/LIVE-BATTERY-2026-09-21.md`).
+- The CLI downloads a draft render's `draft_cache` bundle beside the video
+  (`<name>.draft.bin`) so `--video-mode draft_enhance --draft-cache` works
+  after the signed URL expires; the path is recorded in the metadata file.
 
 
 ## [1.7.1](https://github.com/aself101/bfl-api/compare/v1.7.0...v1.7.1) (2025-12-05)

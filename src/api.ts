@@ -971,8 +971,20 @@ export class BflAPI {
           'x-key': this.apiKey,
         };
 
-        const response = await axios.get<TaskResult>(pollingUrl, { headers });
-        result = response.data;
+        try {
+          const response = await axios.get<TaskResult>(pollingUrl, { headers });
+          result = response.data;
+        } catch (error) {
+          // A settled failure can arrive as an HTTP error whose body is still a task
+          // result — video endpoints answer 422 with {status: 'Error', details: {error}}.
+          // Surface that as the result so the caller sees details.error, not "422".
+          const body = (error as AxiosError).response?.data as Partial<TaskResult> | undefined;
+          if (body && typeof body === 'object' && typeof body.status === 'string' && body.id) {
+            result = body as TaskResult;
+          } else {
+            throw error;
+          }
+        }
       } else {
         // Fallback to constructing URL. Tasks are served from the regional host
         // named in the submit response's polling_url; the global host 404s for

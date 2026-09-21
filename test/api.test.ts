@@ -1527,6 +1527,33 @@ describe('BflAPI Class', () => {
     });
   });
 
+  describe('Get Result - HTTP error carrying a task result', () => {
+    it('returns the body as the result when a 422 poll carries status/details', async () => {
+      const err = new Error('Request failed with status code 422') as Error & { response: { status: number; data: unknown; headers: Record<string, string> } };
+      err.response = {
+        status: 422,
+        data: { id: 't1', status: 'Error', result: null, details: { error: 'Invalid or corrupted image input' } },
+        headers: {},
+      };
+      mockedAxios.get.mockRejectedValue(err);
+
+      const result = await api.getResult('t1', 'https://api.isr.bfl.ai/v1/get_result?id=t1');
+      expect(result.status).toBe('Error');
+      expect(result.details?.error).toBe('Invalid or corrupted image input');
+
+      await expect(
+        api.waitForResult('t1', { pollingUrl: 'https://api.isr.bfl.ai/v1/get_result?id=t1', pollInterval: 0.01, showSpinner: false })
+      ).rejects.toThrow('Generation failed: Invalid or corrupted image input');
+    });
+
+    it('still throws when the error body is not a task result', async () => {
+      const err = new Error('Request failed with status code 500') as Error & { response: { status: number; data: unknown; headers: Record<string, string> } };
+      err.response = { status: 500, data: { detail: 'boom' }, headers: {} };
+      mockedAxios.get.mockRejectedValue(err);
+      await expect(api.getResult('t1', 'https://api.isr.bfl.ai/v1/get_result?id=t1')).rejects.toThrow('500');
+    });
+  });
+
   describe('Get User Credits', () => {
     it('should fetch user credits from API', async () => {
       const mockResponse = {

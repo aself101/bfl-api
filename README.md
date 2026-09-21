@@ -130,7 +130,7 @@ Outpaint replaces the FLUX.1 "pixels per side" model with a target canvas and a 
 | `t2v` | `t2v` | `prompt` | — |
 | `i2v` | `i2v` | `prompt`, `keyframes` | `--keyframe a.jpg b.jpg` spreads plain images across the duration; `--keyframe 0:a.jpg 4.5:b.jpg` pins them to seconds |
 | `v2v` | `v2v` | `prompt`, `start_video` | continues from the clip's final frames; `duration` ≤15 here |
-| `draft_enhance` | `draft_enhance` | `draft_cache` | full-quality render of a prior `draft: true` result; accepts only `resolution`, `safety_tolerance`, `user` |
+| `draft_enhance` | `draft_enhance` | `draft_cache` | full-quality render of a prior `draft: true` result; accepts only `resolution`, `safety_tolerance`, `user`. The CLI saves a draft's bundle as `<name>.draft.bin` next to the video |
 
 Common to t2v/i2v/v2v: `aspect_ratio` (21:9 … 9:21 or `auto`), `duration` 5–20 s or `'auto'`,
 `resolution` hd\|fhd\|qhd\|uhd, `generate_audio` (default true), `draft`. Video `safety_tolerance`
@@ -382,6 +382,8 @@ Publishing is manual: bump `version` in `package.json`, add a CHANGELOG entry, `
   global-install path.
 - **`Invalid parameters: …`** (422) with a video endpoint — the video schemas reject unknown
   fields. Use `--dry-run` to see the exact payload; only the fields listed for that mode are valid.
+- **`Generation failed: Invalid or corrupted image input` on v2v** — a draft render was rejected as
+  `start_video` in testing; a full render was accepted. Use a non-draft clip.
 - **`Content was moderated` / `Request was moderated`** — revise the prompt or inputs; these are not
   retried. Video tolerates less (`safety_tolerance` ≤4) than images.
 - **`Task not found` / 404 from `--get-result`** — tasks are regional; pass the `polling_url` from

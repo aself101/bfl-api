@@ -830,8 +830,14 @@ async function generate(
     }
     logger.info(`Saved: ${outputPath}`);
 
+    // A draft render also returns a draft_cache bundle; save it beside the video so it can be
+    // passed back to --video-mode draft_enhance after the signed URL has expired.
+    let draftCachePath: string | undefined;
     if (result.result.draft_cache) {
-      logger.info(`Draft cache URL (download promptly, expires ~1h): ${result.result.draft_cache}`);
+      draftCachePath = outputPath.replace(/\.[a-z0-9]+$/, '.draft.bin');
+      logger.info('Downloading draft cache...');
+      await downloadVideo(result.result.draft_cache, draftCachePath);
+      logger.info(`Draft cache saved: ${draftCachePath} (use with --video-mode draft_enhance --draft-cache)`);
     }
 
     // Save metadata
@@ -847,6 +853,7 @@ async function generate(
         status: result.status,
         media_url: result.result.sample,
         draft_cache_url: result.result.draft_cache,
+        draft_cache_path: draftCachePath,
         output_path: outputPath,
         cost: result.cost ?? task.cost,
       },

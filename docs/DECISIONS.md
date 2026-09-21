@@ -73,6 +73,13 @@ when the docs list it as terminal.
 warning) rather than fail, so a new in-flight status degrades gracefully; a new
 *terminal* status would spin to timeout until added to `TaskStatus`.
 
+Two more things the live battery (`LIVE-BATTERY-2026-09-21.md`) taught the
+polling path: tasks are served from a *regional* host named only in the submit
+response's `polling_url` (the global host 404s), and a poll can answer HTTP 422
+with a body that is itself a task result. `getResult` handles both — it explains
+the 404 and returns the 422 body as the result — rather than leaving the caller
+with a status code.
+
 ## 4. Video is a media kind, not a special case
 
 `MODELS[key].media` is `'image' | 'video'`. The CLI derives the file extension
