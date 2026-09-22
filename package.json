@@ -1,6 +1,6 @@
 {
   "name": "bfl-api",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Black Forest Labs API wrapper - FLUX.1, FLUX.2, Kontext, FLUX Tools and FLUX 3 video generation for Node.js with CLI",
   "main": "dist/api.js",
   "types": "dist/api.d.ts",

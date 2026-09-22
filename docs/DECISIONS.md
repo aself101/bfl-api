@@ -152,7 +152,7 @@ entry plus a params type if wanted later.
 
 ## 9. Version
 
-2.0.0, not 1.8.0. `generateFlux2Pro` no longer accepts `prompt_upsampling`;
+2.x, not 1.8.0. `generateFlux2Pro` no longer accepts `prompt_upsampling`;
 Kontext no longer requires `input_image`; generation methods return
 `SubmitResult` rather than `TaskResult`; `MODEL_CONSTRAINTS` gained `fields`;
 CLI file extensions changed for png-default models. Each is small; together
@@ -160,7 +160,7 @@ they are a contract change.
 
 ## 10. Releases are manual
 
-semantic-release and its CI job were removed with 2.0.0. `version` is bumped by
+semantic-release and its CI job were removed with 2.0. `version` is bumped by
 hand, `CHANGELOG.md` is hand-written in Keep a Changelog form, and `npm publish`
 runs from a checkout that passed `npm run verify`. CI (`.github/workflows/ci.yml`)
 verifies every push and PR but publishes nothing.
@@ -252,4 +252,28 @@ transient means `BflHttpError` with status 502/503, a `BflNetworkError` whose
 code is in the retryable set, or `BflTimeoutError`. Message text carries no
 control flow. This restores the network-retry behaviour the README always
 claimed, which is a behaviour change from what 1.x actually did.
+
+## 14. The release is 2.0.1, because 2.0.0 is unusable
+
+`bfl-api@2.0.0` was published on 2022-12-06 — long before the current 1.x line
+began in November 2025 — and later unpublished. npm tombstones unpublished
+versions permanently: the registry refuses `PUT` for that exact string forever,
+with `Cannot publish over previously published version "2.0.0"`.
+
+**The trap is that the tombstone is invisible from the read side.** It is absent
+from the packument's `versions` map, so `npm view bfl-api versions` does not list
+it and `npm view bfl-api@2.0.0` returns a plain `E404`. Both readings say the
+version is free. The only place it surfaces is the packument's `time` map, which
+still holds a `2.0.0` entry that `versions` does not:
+
+```bash
+curl -s https://registry.npmjs.org/bfl-api | python3 -c "
+import json,sys; d=json.load(sys.stdin)
+live=set(d['versions']); times=set(d['time'])-{'created','modified'}
+print('tombstoned:', sorted(times-live))"
+```
+
+That set difference is the check worth running before picking any version number
+for a package with an unpublish in its history. A pre-publish audit that only
+consults `versions` will clear a version the registry will then reject.
 
