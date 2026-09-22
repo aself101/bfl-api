@@ -1,4 +1,4 @@
-# Live battery — 2026-09-21 (axios) and 2026-09-22 (native fetch)
+# Live batteries — axios (2026-09-21), native fetch, and Verdaccio publish (2026-09-22)
 
 Every endpoint the wrapper exposes, run through the built CLI (`dist/cli.js`) against the
 production API on 2026-09-21, from commit `cc4bc6e` plus the two fixes this run produced.
@@ -131,3 +131,66 @@ access denied`), confirming the new `BflHttpError` mapping reproduces what axios
 
 **Timings** are within normal API variance in both directions (e.g. `flux-expand` 6.5s → 22.7s,
 `flux-outpaint` 4.9s → 2.3s); nothing suggests a systematic change from the client swap.
+
+---
+
+## Re-run from a Verdaccio publish — 2026-09-22
+
+Third run, this time against the **published artifact** rather than a working tree: `npm publish`
+to a local Verdaccio, then `npm install -g bfl-api --registry http://localhost:4873/` into an
+isolated prefix, and every command below invoked as `bfl` from that install. This exercises the
+tarball contents, the `files` allow-list, the `bin` shim, and the real dependency tree —
+none of which `node dist/cli.js` touches.
+
+Installed tree: 31 packages, **zero axios**. Node 22.23.2. `bfl --version` → 2.0.0.
+
+Credits 724.4 → 220.25. Video renders were run one at a time, each waiting for the previous to
+settle, per the throttling note above — no 402 occurred.
+
+| run | result | cost (submit echo) | wall s | notes |
+|---|---|---|---|---|
+| flux-dev | OK | — | 4.6 |  |
+| flux-pro | OK | — | 5.0 |  |
+| flux-ultra | OK | — | 13.8 |  |
+| kontext-pro | OK | — | 4.5 |  |
+| kontext-max | OK | — | 7.1 |  |
+| flux-2-pro | OK | 6 | 8.7 |  |
+| flux-2-flex | OK | 10 | 8.8 |  |
+| flux-2-max | OK | 16 | 42.6 |  |
+| flux-2-klein-9b | OK | 1.5 | 2.4 |  |
+| flux-2-klein-4b | OK | 1.4 | 2.7 |  |
+| flux-fill | OK | — | 7.1 |  |
+| flux-expand | OK | — | 8.7 |  |
+| flux-deblur | OK | 3 | 2.3 |  |
+| flux-erase | OK | 3 | 2.3 |  |
+| flux-outpaint | OK | 4.5 | 2.3 |  |
+| flux-outpaint-high | OK | 20 | 67.3 |  |
+| flux-vto | OK | 4.75 | 4.4 |  |
+| flux-ultra-finetuned-x | FAIL | — | — | bogus finetune_id — expected 400 |
+| flux-fill-finetuned-x | FAIL | — | — | bogus finetune_id — expected 400 |
+| finetune-details-x | FAIL | — | — | bogus id — expected 404 |
+| video-t2v-draft | OK | — | 39.8 | draft cache auto-saved to <name>.draft.bin |
+| video-draft-enhance | OK | — | 26.0 | rendered from that saved .bin |
+| video-t2v | OK | — | 68.9 |  |
+| video-i2v | OK | — | 93.5 |  |
+| video-edit | OK | — | 30.5 |  |
+| video-upscale | OK | — | 55.3 |  |
+| video-v2v | OK | — | 144.0 | run spaced from the preceding video work; no 402 this time |
+
+**24 successful runs across all 21 endpoints, plus the 3 expected rejections** — which returned
+the same message text as both earlier runs.
+
+### Publish hygiene gates
+
+Run after the install, each with the control that proves it can fire:
+
+| gate | result |
+|---|---|
+| `package-lock.json` contains no `localhost:4873` | clean |
+| No stray `.npmrc` in the repo | clean |
+| `git status` unchanged by the publish | clean |
+| jq scan fires on synthetic poisoned input | fires |
+
+The lockfile stayed clean because the install used `--registry` into a separate prefix rather
+than adding a registry rule to the project — the failure mode where a Verdaccio URL is baked
+into `package-lock.json` and only surfaces on a cold-cache CI runner never got a chance to start.
