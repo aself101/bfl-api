@@ -1,0 +1,25 @@
+# Line endings.
+#
+# This repo drifted to a 10-CRLF / 28-LF split, which also leaked into build
+# output: dist/cli.js shipped with 190 CRLF and 850 LF lines in 2.0.1. Harmless
+# for JS — and the shebang happened to land on LF, so the CLI still executed on
+# Linux — but it made every diff noisy and left the next shebang to luck.
+#
+# Store text as LF in the repo and check it out as LF everywhere. This is a
+# Node CLI targeting macOS/Linux; there is no Windows-tooling reason to keep CRLF.
+* text=auto eol=lf
+
+# Binary: never touch these.
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.webp  binary
+*.gif   binary
+*.mp4   binary
+*.bin   binary
+*.tgz   binary
+*.ico   binary
+
+# Generated / vendored — keep diffs collapsed in review.
+package-lock.json               linguist-generated=true
+docs/openapi-snapshot-*.json    linguist-generated=true
