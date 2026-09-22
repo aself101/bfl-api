@@ -1,1264 +1,431 @@
-# Black Forest Labs Image Generation Service
+# Black Forest Labs API — Node.js wrapper and CLI
 
 [![npm version](https://img.shields.io/npm/v/bfl-api.svg)](https://www.npmjs.com/package/bfl-api)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node.js Version](https://img.shields.io/node/v/bfl-api)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-blue.svg)](https://www.typescriptlang.org/)
-[![Tests](https://img.shields.io/badge/tests-271%20passing-brightgreen)](test/)
-[![Coverage](https://img.shields.io/badge/coverage-89.58%25-brightgreen)](test/)
+[![Tests](https://img.shields.io/badge/tests-342%20passing-brightgreen)](test/)
+[![Coverage](https://img.shields.io/badge/coverage-90.5%25-brightgreen)](test/)
 
-A TypeScript/Node.js wrapper for the [Black Forest Labs API](https://docs.bfl.ml/quick_start/introduction) that provides easy access to FLUX and Kontext image generation models. Generate stunning AI images with professional quality through a simple command-line interface.
+A TypeScript/Node.js wrapper for the [Black Forest Labs API](https://docs.bfl.ml/) covering every
+generation endpoint BFL publishes: **FLUX.1**, **FLUX.2** (pro / flex / max / klein), **Kontext**,
+the **FLUX Tools** image endpoints (deblur, erase, outpaint, virtual try-on), and **FLUX 3 video**
+(text-to-video, image- and video-continuation, edit, upscale). Typed API class plus a batch CLI
+with auto-polling, retries, and organised output.
 
-This service follows the data-collection architecture pattern with organized data storage, automatic polling, retry logic, comprehensive logging, and CLI orchestration.
+The wrapper is checked against BFL's live OpenAPI document on every CI run
+([`scripts/check-spec-drift.ts`](scripts/check-spec-drift.ts)), so a parameter the API renames or
+adds fails the build instead of silently going unsupported.
+
+> **Upgrading from 1.x?** See [Upgrading to 2.0](#upgrading-to-20) — there are four contract changes.
 
 ## Quick Demo
 
 [![asciicast](https://asciinema.org/a/755878.svg)](https://asciinema.org/a/755878)
 
-**[📺 Watch 3-minute CLI demo](https://asciinema.org/a/755878)** - Batch processing, auto-retry, and organized output in action.
+**[📺 Watch 3-minute CLI demo](https://asciinema.org/a/755878)** — batch processing, auto-retry, and organised output.
 
 ## Quick Start
 
-### CLI Usage
 ```bash
-# Install globally
 npm install -g bfl-api
+export BFL_API_KEY=your_key            # from https://dashboard.bfl.ai/
 
-export BFL_API_KEY="my-bfl-api-key"
-
-# Generate an image
-bfl --flux-dev --prompt "a serene mountain landscape"
+bfl --flux-2-pro --prompt "a lighthouse in a storm" --width 1024 --height 1024
+bfl --flux-erase --image ./photo.jpg --mask ./remove.png
+bfl --flux-3-video --video-mode t2v --prompt "a fox runs through autumn woods" --duration 8
+bfl --examples                          # one worked example per model
 ```
 
-### Programmatic Usage
 ```typescript
 import { BflAPI } from 'bfl-api';
 
-const api = new BflAPI();
+const api = new BflAPI(); // reads BFL_API_KEY
 
-// Generate and wait for image
-const task = await api.generateFluxDev({
-  prompt: 'a serene mountain landscape',
-  width: 1024,
-  height: 768
-});
+const task = await api.generateFlux2Pro({ prompt: 'a lighthouse in a storm', width: 1024, height: 1024 });
+const result = await api.waitForResult(task.id, { pollingUrl: task.polling_url });
+console.log(result.result?.sample); // signed URL, expires in ~1 hour
 
-const result = await api.waitForResult(task.id);
-console.log('Image URL:', result.result.sample);
+const clip = await api.generateFlux3Video({ mode: 't2v', prompt: 'a fox runs through autumn woods', duration: 8 });
+const video = await api.waitForResult(clip.id, { pollingUrl: clip.polling_url, timeout: 900 });
 ```
-
-Full TypeScript support with exported types for all parameters and responses.
 
 ## Table of Contents
 
-- [Overview](#overview)
 - [Models](#models)
-- [Authentication Setup](#authentication-setup)
+- [Authentication](#authentication)
 - [Installation](#installation)
-- [TypeScript Support](#typescript-support)
-- [Quick Start](#quick-start)
-- [CLI Usage](#cli-usage)
-- [API Methods](#api-methods)
-- [Examples](#examples)
-- [Data Organization](#data-organization)
-- [Security Features](#security-features)
-- [Error Handling](#error-handling)
+- [CLI](#cli)
+- [API](#api)
+- [TypeScript](#typescript)
+- [Output and metadata](#output-and-metadata)
+- [Polling, errors and retries](#polling-errors-and-retries)
+- [Security](#security)
+- [Spec drift check](#spec-drift-check)
+- [Upgrading to 2.0](#upgrading-to-20)
+- [Development](#development)
 - [Troubleshooting](#troubleshooting)
-
-## Overview
-
-The Black Forest Labs API provides access to state-of-the-art image generation models. This Node.js service implements:
-
-- **10 Generation Models** - FLUX.1 [dev], FLUX 1.1 [pro], FLUX Ultra, FLUX.1 Fill [pro], FLUX.1 Fill [pro] Finetune, FLUX.1 Expand [pro], FLUX.2 [PRO], FLUX.2 [FLEX], Kontext Pro, Kontext Max
-- **Production Security** - API key redaction, error sanitization, HTTPS enforcement, comprehensive SSRF protection (including IPv4-mapped IPv6 bypass prevention)
-- **DoS Prevention** - Request timeouts (30s API, 60s downloads), file size limits (50MB), redirect limits
-- **Parameter Validation** - Pre-flight validation catches invalid parameters before API calls
-- **API Key Authentication** - Multiple configuration methods with secure handling
-- **Auto-polling with Spinner** - Automatic result polling with animated progress indicator
-- **Batch Processing** - Generate multiple images sequentially from multiple prompts
-- **Retry Logic** - Exponential backoff for transient errors
-- **Image Input Support** - Convert local files or URLs to base64 with validation
-- **Organized Storage** - Structured directories with timestamped files and metadata
-- **CLI Orchestration** - Command-line tool for easy batch generation
-- **Full TypeScript Support** - Complete type definitions for all API methods, parameters, and responses
-- **Comprehensive Testing** - 271 tests with 89.58% coverage (api.ts: 94.76%, utils.ts: 82.71%, config.ts: 95.87%)
 
 ## Models
 
-### FLUX.1 [dev]
-Full control text-to-image generation with adjustable steps and guidance.
+Twenty-one endpoints. Parameter ranges below are what the wrapper validates before spending
+credits; they mirror `https://api.bfl.ai/openapi.json` (snapshot in [`docs/`](docs/)) plus the
+documented product limits the spec does not encode.
 
-**Best for:** Experimentation, fine-tuning parameters, development
+### FLUX.1 family
 
-**Parameters:**
-- `width`, `height` - Image dimensions (256-1440, divisible by 32)
-- `steps` - Inference steps (1-50)
-- `guidance` - Prompt adherence strength (1.5-5)
+| CLI flag | Method | Required | Notable parameters |
+|---|---|---|---|
+| `--flux-dev` | `generateFluxDev` | `prompt` | `width`/`height` 256–1440 ÷32, `steps` 1–50, `guidance` 1.5–5, `image_prompt` |
+| `--flux-pro` | `generateFluxPro` | `prompt` | `width`/`height` 256–1440 ÷32, `image_prompt` (Redux) |
+| `--flux-ultra` | `generateFluxProUltra` | `prompt` | `aspect_ratio` 21:9…9:21, `raw`, `image_prompt` + `image_prompt_strength` 0–1 |
+| `--flux-ultra-finetuned` | `generateFluxProUltraFinetuned` | `finetune_id` | as Ultra minus `raw`, plus `finetune_strength` 0–2 |
+| `--flux-fill` | `generateFluxProFill` | `image`, `prompt` | `mask`, `steps` 15–50, `guidance` 1.5–100 |
+| `--flux-fill-finetuned` | `generateFluxProFillFinetuned` | `finetune_id`, `image` | as Fill plus `finetune_strength` 0–2 |
+| `--flux-expand` | `generateFluxProExpand` | `image` | `top`/`bottom`/`left`/`right` 0–2048, `steps`, `guidance` |
+| `--kontext-pro` | `generateKontextPro` | `prompt` | `input_image`…`_4` (optional — text-only works), `aspect_ratio` |
+| `--kontext-max` | `generateKontextMax` | `prompt` | same as Kontext Pro |
 
-### FLUX 1.1 [pro]
-Professional quality generation with Redux image prompting.
+FLUX.1 `safety_tolerance` is 0–6. Kontext's server-default `output_format` is **png**.
 
-**Best for:** Production use, high-quality images, image-to-image with Redux
+### FLUX.2 family
 
-**Parameters:**
-- `width`, `height` - Image dimensions (256-1440, divisible by 32)
-- `image_prompt` - Optional Redux image guidance (base64 or URL)
+| CLI flag | Method | Required | Notable parameters |
+|---|---|---|---|
+| `--flux-2-pro` | `generateFlux2Pro` | `prompt` | `input_image`…`_8`, `width`/`height` ≥64, `disable_pup` |
+| `--flux-2-max` | `generateFlux2Max` | `prompt` | same schema as [pro] — highest quality tier |
+| `--flux-2-flex` | `generateFlux2Flex` | `prompt` | `input_image`…`_8`, `guidance` 1.5–10, `steps` 1–50, `prompt_upsampling` |
+| `--flux-2-klein-4b` | `generateFlux2Klein4b` | `prompt` | `input_image`…`_4`, `width`/`height` ≥64 — fastest tier |
+| `--flux-2-klein-9b` | `generateFlux2Klein9b` | `prompt` | same as klein 4B |
 
-### FLUX 1.1 [pro] Ultra
-Maximum quality with aspect ratio control and raw mode.
+FLUX.2 `safety_tolerance` is 0–5. **[pro] and [max] upsample the prompt by default**; pass
+`disable_pup: true` (`--disable-pup`) to use your prompt verbatim. [flex] uses `prompt_upsampling`
+instead (default true). Dimensions are validated at 64–2048, multiple of 16 — the documented product
+limit; the spec states only the minimum.
 
-**Best for:** Cinematic outputs, specific aspect ratios, natural/raw aesthetics
+### FLUX Tools (image)
 
-**Parameters:**
-- `aspect_ratio` - Image proportions (21:9, 16:9, 4:3, 1:1, 3:4, 9:16, 9:21)
-- `raw` - Enable raw/natural aesthetic mode (boolean)
-- `image_prompt` - Optional image remixing (base64 or URL)
+| CLI flag | Method | Required | Notable parameters |
+|---|---|---|---|
+| `--flux-deblur` | `deblurImage` | `image` | nothing else — no prompt, no mask |
+| `--flux-erase` | `eraseImage` | `image`, `mask` | `dilate_pixels` 0–25 (default 10); white mask pixels are removed |
+| `--flux-outpaint` | `outpaintImage` | `input_image`, `width`, `height` | `reference_offset_x`/`_y` (px, may be negative; omit to centre), `auto_crop`, `mode` high\|fast, `prompt`, `disable_pup` |
+| `--flux-vto` | `virtualTryOn` | `prompt`, `person`, `garment` | — |
 
-### FLUX.1 Fill [pro]
-Professional inpainting with mask-based editing for precise modifications.
+Tools `safety_tolerance` is 0–5. Deblur, erase and outpaint default `output_format` to **png**.
+Outpaint replaces the FLUX.1 "pixels per side" model with a target canvas and a placement offset.
 
-**Best for:** Inpainting, object removal/replacement, selective editing with masks
+### FLUX 3 (video)
 
-**Parameters:**
-- `image` - Input image to edit (required, base64 or URL)
-- `mask` - Mask defining edit region (required for JPG/JPEG, base64 or URL)
-- `steps` - Inference steps (15-50)
-- `guidance` - Prompt adherence strength (1.5-100)
-- `safety_tolerance` - Content moderation strictness (0-6)
+| CLI flag | Method | Required | Notable parameters |
+|---|---|---|---|
+| `--flux-3-video` | `generateFlux3Video` | `mode`, then per mode | see below |
+| `--flux-video-edit` | `editVideo` | `video`, `prompt` (≤4096 chars) | `safety_tolerance` only — duration/resolution/audio come from the source |
+| `--flux-video-upscale` | `upscaleVideo` | `input_video` | `upscale_factor` 1.5–3, `creativity` 0\|1, `prompt` |
 
-**Note:** Requires either a separate mask image OR a PNG with an alpha channel (transparency) defining the edit region.
+`generateFlux3Video` is a discriminated union on `mode`:
 
-### FLUX.1 Fill [pro] Finetune
-Inpainting with custom fine-tuned models for specialized styles and subjects.
+| `mode` | CLI `--video-mode` | Required | Extra |
+|---|---|---|---|
+| `t2v` | `t2v` | `prompt` | — |
+| `i2v` | `i2v` | `prompt`, `keyframes` | `--keyframe a.jpg b.jpg` spreads plain images across the duration; `--keyframe 0:a.jpg 4.5:b.jpg` pins them to seconds |
+| `v2v` | `v2v` | `prompt`, `start_video` | continues from the clip's final frames; `duration` ≤15 here |
+| `draft_enhance` | `draft_enhance` | `draft_cache` | full-quality render of a prior `draft: true` result; accepts only `resolution`, `safety_tolerance`, `user`. The CLI saves a draft's bundle as `<name>.draft.bin` next to the video |
 
-**Best for:** Applying custom trained models to inpainting tasks, consistent style application, specialized subject matter
+Common to t2v/i2v/v2v: `aspect_ratio` (21:9 … 9:21 or `auto`), `duration` 5–20 s or `'auto'`,
+`resolution` hd\|fhd\|qhd\|uhd, `generate_audio` (default true), `draft`. Video `safety_tolerance`
+is **0–4**. There is no `seed` or `output_format` on any video endpoint; results are always MP4.
+The video schemas are strict — an unknown field is a 422 — so the wrapper sends exactly the fields
+each mode declares and validates the mode's required input before submitting.
 
-**Parameters:**
-- `finetune_id` - ID of your fine-tuned model (required)
-- `image` - Input image to edit (required, base64 or URL)
-- `prompt` - Description of desired changes (optional, default: '')
-- `mask` - Mask defining edit region (required for JPG/JPEG, base64 or URL)
-- `finetune_strength` - Model influence strength (0-2, API default: 1.1)
-- `steps` - Inference steps (15-50)
-- `guidance` - Prompt adherence strength (1.5-100)
-- `safety_tolerance` - Content moderation strictness (0-6)
+### Every endpoint also accepts
 
-**Note:** Requires a fine-tuned model ID from your BFL account. Same masking rules as regular Fill apply.
+- `user` — opaque end-user id forwarded to BFL (not on `flux-ultra-finetuned`).
+- `webhook_url` / `webhook_secret` — receive the result by webhook; the submit response then has no
+  `polling_url`. (Not on `flux-3-video`, `flux-video-edit`, `flux-outpaint`.)
+- `seed` on image endpoints except outpaint; `output_format` jpeg\|png\|webp on every image endpoint.
 
-### FLUX.1 Expand [pro]
-Professional image expansion/outpainting that extends images beyond original boundaries.
+## Authentication
 
-**Best for:** Image expansion, outpainting, adding context around images, extending canvases
+Get a key at [dashboard.bfl.ai](https://dashboard.bfl.ai/). The wrapper looks in this order:
 
-**Parameters:**
-- `image` - Input image to expand (required, base64 or URL)
-- `top` - Pixels to expand at top (0-2048, default: 0)
-- `bottom` - Pixels to expand at bottom (0-2048, default: 0)
-- `left` - Pixels to expand on left (0-2048, default: 0)
-- `right` - Pixels to expand on right (0-2048, default: 0)
-- `prompt` - Description of desired expansion (optional)
-- `steps` - Inference steps (15-50, default: 50)
-- `guidance` - Prompt adherence strength (1.5-100, default: 60)
-- `safety_tolerance` - Content moderation strictness (0-6)
-- `output_format` - Output format: 'jpeg' or 'png'
-- `prompt_upsampling` - AI-powered prompt enhancement (boolean)
-
-**Note:** Specify at least one expansion direction (top, bottom, left, or right) with a value greater than 0.
-
-### Kontext Pro
-Multi-reference image editing with context preservation.
-
-**Best for:** Image editing, multi-reference composition, context-aware modifications
-
-**Parameters:**
-- `input_image` - Base image to edit (required, base64 or URL)
-- `reference_image_1`, `reference_image_2`, `reference_image_3` - Optional context images (base64 or URL)
-
-### Kontext Max
-Maximum quality multi-reference image editing.
-
-**Best for:** High-end image editing, professional retouching
-
-**Parameters:**
-- `input_image` - Base image to edit (required, base64 or URL)
-- `reference_image_1`, `reference_image_2`, `reference_image_3` - Optional context images (base64 or URL)
-
-### FLUX.2 [PRO]
-Next-generation model with multi-image input support for contextual generation and editing.
-
-**Best for:** Advanced multi-image editing, contextual generation, combining multiple references
-
-**Parameters:**
-- `width`, `height` - Image dimensions (64-2048, divisible by 16)
-- `input_image` through `input_image_8` - Up to 8 input images for multi-reference (base64 or URL)
-- `prompt_upsampling` - AI prompt enhancement (default: true)
-- `safety_tolerance` - Content moderation level (0-5, default: 2)
-- `output_format` - Output format: 'jpeg' or 'png'
-
-### FLUX.2 [FLEX]
-Flexible next-generation model with experimental multi-reference support.
-
-**Best for:** Experimental multi-image workflows, flexible generation styles
-
-**Parameters:**
-- `width`, `height` - Image dimensions (64-2048, divisible by 16)
-- `input_image` through `input_image_8` - Up to 8 input images for experimental multiref (base64 or URL)
-- `prompt_upsampling` - AI prompt enhancement (default: true)
-- `safety_tolerance` - Content moderation level (0-5, default: 2)
-- `output_format` - Output format: 'jpeg' or 'png'
-
-## Authentication Setup
-
-### 1. Get Your API Key
-
-1. Visit [https://docs.bfl.ml/quick_start/introduction](https://docs.bfl.ml/quick_start/introduction)
-2. Create an account or sign in
-3. Generate your API key from the dashboard
-4. Copy your API key
-
-### 2. Configure Your API Key
-
-You can provide your API key in multiple ways (listed in priority order):
-
-#### Option A: CLI Flag (Highest Priority)
-Pass the API key directly when running commands:
+1. `--api-key` CLI flag / `new BflAPI({ apiKey })`
+2. `BFL_API_KEY` environment variable
+3. `.env` in the current directory
+4. `~/.bfl/.env` (for global installs)
 
 ```bash
-bfl --api-key YOUR_API_KEY --flux-dev --prompt "a cat"
+mkdir -p ~/.bfl && echo "BFL_API_KEY=your_key" > ~/.bfl/.env
 ```
-
-This is useful for one-off commands or testing.
-
-#### Option B: Environment Variable
-Set the `BFL_API_KEY` environment variable in your shell:
-
-```bash
-# Add to your ~/.bashrc, ~/.zshrc, or equivalent
-export BFL_API_KEY=your_actual_api_key_here
-
-# Or use it for a single command
-BFL_API_KEY=your_key bfl --flux-dev --prompt "a cat"
-```
-
-This is ideal for CI/CD pipelines and server environments.
-
-#### Option C: Local .env File (Project-Specific)
-Create a `.env` file in your project directory:
-
-```bash
-# In your project directory
-echo "BFL_API_KEY=your_actual_api_key_here" > .env
-```
-
-This is best for project-specific configurations and when working on multiple projects.
-
-#### Option D: Global Config (For Global npm Installs)
-Create a global config file at `~/.bfl/.env`:
-
-```bash
-# Create config directory
-mkdir -p ~/.bfl
-
-# Add your API key
-echo "BFL_API_KEY=your_actual_api_key_here" > ~/.bfl/.env
-```
-
-This is perfect for global npm installations (`npm install -g bfl-api`) where you want the API key available everywhere.
-
-**Security Note:** Never commit `.env` files or expose your API key publicly. The `.env` file is automatically ignored by git.
 
 ## Installation
 
-### Option 1: Install from npm
-
 ```bash
-# Install globally for CLI usage
-npm install -g bfl-api
-
-# Or install locally in your project
-npm install bfl-api
+npm install -g bfl-api      # CLI: bfl
+npm install bfl-api         # library, or npx bfl
 ```
 
-### Option 2: Install from source
+From source: `git clone https://github.com/aself101/bfl-api && cd bfl-api && npm install && npm run build`.
+Requires Node 22+ (native `fetch`, `AbortSignal.timeout`).
 
-```bash
-# Clone the repository
-git clone https://github.com/aself101/bfl-api.git
-cd bfl-api
+## CLI
 
-# Install dependencies
-npm install
+```
+bfl <model flag> [--prompt "text"...] [inputs] [parameters] [options]
 ```
 
-Dependencies:
-- `axios` - HTTP client for API calls
-- `commander` - CLI argument parsing
-- `dotenv` - Environment variable management
-- `winston` - Logging framework
+One model flag per run. `--prompt` may repeat for batch generation; deblur, erase, outpaint,
+upscale and `draft_enhance` run without one.
 
-## TypeScript Support
+**Inputs** (file path or HTTP(S) URL; files are validated and base64-encoded, video URLs are passed
+through):
+`--image`, `--mask`, `--image-prompt`, `--input-image`…`--input-image-8`, `--person`, `--garment`,
+`--video`, `--input-video`, `--start-video`, `--keyframe <spec...>`, `--draft-cache`.
 
-This package is written in TypeScript and includes full type definitions. All API methods, parameters, and responses are fully typed.
+**Parameters:** `--width`, `--height`, `--steps`, `--guidance`, `--aspect-ratio`, `--raw`,
+`--image-prompt-strength`, `--top/--bottom/--left/--right`, `--finetune-id`, `--finetune-strength`,
+`--dilate-pixels`, `--auto-crop`, `--reference-offset-x/-y`, `--outpaint-mode`, `--video-mode`,
+`--duration`, `--resolution`, `--no-audio`, `--draft`, `--creativity`, `--upscale-factor`,
+`--seed`, `--safety-tolerance`, `--output-format`, `--prompt-upsampling`, `--disable-pup`,
+`--user`, `--webhook-url`, `--webhook-secret`.
 
-### Exported Types
+**Options:** `--output-dir`, `--timeout` (default 300 s image / 900 s video), `--dry-run` (prints the
+exact payload with base64 elided), `--log-level`, `--api-key`.
+
+**Utilities:** `--credits`, `--list-finetunes`, `--finetune-details <id>`,
+`--delete-finetune <id> --yes`, `--get-result <task id> [--polling-url <url>]`, `--examples`, `--help`.
+
+Ranges are validated before the request is sent (`bfl --flux-2-flex --guidance 11 …` fails locally,
+not after a round trip). `bfl --examples` prints one worked command per model.
+
+## API
 
 ```typescript
-import {
-  BflAPI,
-  // Parameter types
-  FluxDevParams,
-  FluxProParams,
-  FluxProUltraParams,
-  FluxProFillParams,
-  FluxProExpandParams,
-  KontextProParams,
-  KontextMaxParams,
-  Flux2Params,
-  // Response types
-  TaskResult,
-  CreditsResult,
-  // Config types
-  BflApiOptions
-} from 'bfl-api';
-
-// Types are automatically inferred
-const api = new BflAPI();
-const task = await api.generateFluxDev({
-  prompt: 'a cat',  // TypeScript will validate all parameters
-  width: 1024,
-  height: 768
-});
+const api = new BflAPI({ apiKey?, baseUrl?, logLevel? });
 ```
 
-### Type-Safe Parameters
-
-All generation methods have strict parameter typing:
+Every `generate*` / tool method returns a `SubmitResult` — `{ id, polling_url, cost?, input_mp?,
+output_mp? }` (or `{ id, status, webhook_url }` in webhook mode). Poll with:
 
 ```typescript
-// TypeScript will catch invalid parameters at compile time
-const task = await api.generateFluxDev({
-  prompt: 'a landscape',
-  width: 1024,
-  height: 768,
-  steps: 28,        // number (1-50)
-  guidance: 3,      // number (1.5-5)
-  seed: 42,         // optional number
-  output_format: 'png'  // 'jpeg' | 'png'
-});
-```
-
-### Building from Source
-
-```bash
-# Install dependencies
-npm install
-
-# Build TypeScript to JavaScript
-npm run build
-
-# Output is in dist/
-ls dist/
-# api.js, api.d.ts, cli.js, cli.d.ts, config.js, config.d.ts, utils.js, utils.d.ts
-```
-
-## Quick Start
-
-### Using the CLI
-
-The CLI command depends on how you installed the package:
-
-**If installed globally** (`npm install -g bfl-api`):
-```bash
-bfl --examples                    # Show 15+ usage examples
-bfl --flux-dev --prompt "a cat"   # Generate with FLUX.1 [dev]
-bfl --credits                     # Check account credits
-```
-
-**If installed locally** in a project:
-```bash
-npx bfl --examples                    # Show 15+ usage examples
-npx bfl --flux-dev --prompt "a cat"   # Generate with FLUX.1 [dev]
-npx bfl --credits                     # Check account credits
-```
-
-**If working from source** (cloned repository):
-```bash
-npm run bfl:examples              # Show 15+ usage examples
-npm run bfl -- --flux-dev --prompt "a cat"   # Generate
-npm run bfl:credits               # Check credits
-```
-
-### Example Commands
-
-```bash
-# Show examples (15+ usage examples)
-bfl --examples
-
-# Generate with FLUX.1 [dev]
-bfl --flux-dev --prompt "a serene mountain landscape"
-
-# Generate with FLUX 1.1 [pro] Ultra
-bfl --flux-ultra --prompt "cinematic sunset" --aspect-ratio "21:9" --raw
-
-# Edit image with Kontext Pro
-bfl --kontext-pro --prompt "make it winter" --input-image ./photo.jpg
-
-# Batch generation
-bfl --flux-dev \
-  --prompt "a cat" \
-  --prompt "a dog" \
-  --prompt "a bird"
-
-# Check credits
-bfl --credits
-```
-
-**Note:** Examples below use `bfl` directly (global install). If using local install, prefix with `npx`: `npx bfl --flux-dev ...`
-
-### Using the API Class Directly
-
-```typescript
-// If installed via npm
-import { BflAPI } from 'bfl-api';
-
-// If running from source
-import { BflAPI } from './src/api.js';
-
-// Initialize the API
-const api = new BflAPI();
-
-// Generate with FLUX.1 [dev]
-const task = await api.generateFluxDev({
-  prompt: 'a beautiful sunset',
-  width: 1024,
-  height: 768,
-  steps: 28,
-  guidance: 3
-});
-
-// Wait for result
-const result = await api.waitForResult(task.id);
-console.log('Image URL:', result.result.sample);
-```
-
-## CLI Usage
-
-### Basic Command Structure
-
-```bash
-# Global install
-bfl [model] [options]
-
-# Local install (use npx)
-npx bfl [model] [options]
-
-# From source (development)
-npm run bfl -- [model] [options]
-```
-
-### Model Selection (Required)
-
-Choose one model:
-
-```bash
---flux-dev               # FLUX.1 [dev] - Full control
---flux-pro               # FLUX 1.1 [pro] - Professional quality
---flux-ultra             # FLUX 1.1 [pro] Ultra - Maximum quality
---flux-fill              # FLUX.1 Fill [pro] - Inpainting/mask editing
---flux-fill-finetuned    # FLUX.1 Fill [pro] Finetune - Custom model inpainting
---flux-expand            # FLUX.1 Expand [pro] - Image expansion/outpainting
---flux-2-pro             # FLUX.2 [PRO] - Multi-image generation/editing
---flux-2-flex            # FLUX.2 [FLEX] - Experimental multi-reference
---kontext-pro            # Kontext Pro - Image editing
---kontext-max            # Kontext Max - Premium editing
-```
-
-### Common Options
-
-```bash
---prompt <text>               # Prompt (can specify multiple for batch)
---seed <number>               # Random seed for reproducibility
---safety-tolerance <0-6>      # Content moderation level (default: 2)
---output-format <jpeg|png>    # Output format (default: jpeg)
---timeout <seconds>           # Max wait time (default: 300)
---output-dir <path>           # Custom output directory
---log-level <level>           # DEBUG, INFO, WARNING, ERROR
---dry-run                     # Preview without generating
-```
-
-**Note**: All parameters are validated before making API calls. Invalid values (e.g., width not divisible by 32, steps > 50) will produce clear error messages, saving API credits.
-
-### FLUX.1 [dev] Specific
-
-```bash
---width <number>              # 256-1440, multiple of 32 (default: 1024)
---height <number>             # 256-1440, multiple of 32 (default: 768)
---steps <number>              # 1-50 (default: 28)
---guidance <number>           # 1.5-5 (default: 3)
---prompt-upsampling           # Enable AI prompt enhancement
-```
-
-### FLUX 1.1 [pro] Specific
-
-```bash
---width <number>              # 256-1440, multiple of 32
---height <number>             # 256-1440, multiple of 32
---image-prompt <path>         # Input image for Redux (file or URL)
---prompt-upsampling           # Enable AI prompt enhancement
-```
-
-### FLUX Ultra Specific
-
-```bash
---aspect-ratio <ratio>        # e.g., 16:9, 21:9, 1:1 (default: 16:9)
---raw                         # Enable raw/natural mode
---image-prompt <path>         # Input image for remixing (file or URL)
---image-prompt-strength <0-1> # Remix strength (default: 0.1)
-```
-
-### FLUX.1 Fill [pro] Specific
-
-```bash
---image <path>                # Input image to edit (required, file or URL)
---mask <path>                 # Mask image defining edit region (required for JPG/JPEG)
---steps <number>              # 15-50 (default: 28)
---guidance <number>           # 1.5-100 (default: 3)
---prompt-upsampling           # Enable AI prompt enhancement
-```
-
-**Note:** Either `--mask` is required, OR `--image` must be a PNG with an alpha channel (transparency). JPG/JPEG images require an explicit `--mask` parameter.
-
-### FLUX.1 Fill [pro] Finetune Specific
-
-```bash
---finetune-id <id>            # Fine-tuned model ID (required)
---image <path>                # Input image to edit (required, file or URL)
---mask <path>                 # Mask image defining edit region (required for JPG/JPEG)
---finetune-strength <number>  # Model influence 0-2 (default: 1.1)
---steps <number>              # 15-50 (default: 50)
---guidance <number>           # 1.5-100 (default: 60)
---prompt-upsampling           # Enable AI prompt enhancement
-```
-
-**Note:** Requires a fine-tuned model ID from your BFL account. Same masking rules as regular Fill apply.
-
-### FLUX.1 Expand [pro] Specific
-
-```bash
---image <path>                # Input image to expand (required, file or URL)
---top <pixels>                # Pixels to expand at top (0-2048, default: 0)
---bottom <pixels>             # Pixels to expand at bottom (0-2048, default: 0)
---left <pixels>               # Pixels to expand on left (0-2048, default: 0)
---right <pixels>              # Pixels to expand on right (0-2048, default: 0)
---steps <number>              # 15-50 (default: 50)
---guidance <number>           # 1.5-100 (default: 60)
---prompt-upsampling           # Enable AI prompt enhancement
-```
-
-**Note:** Specify at least one direction (top, bottom, left, or right) with a value greater than 0. Use `--prompt` to describe the content that should fill the expanded areas.
-
-### Kontext Models Specific
-
-```bash
---input-image <path>          # Primary input (required, file or URL)
---input-image-2 <path>        # Additional reference (optional)
---input-image-3 <path>        # Additional reference (optional)
---input-image-4 <path>        # Additional reference (optional)
-```
-
-### FLUX.2 Models Specific
-
-```bash
---width <number>              # 64-2048, multiple of 16 (auto by default)
---height <number>             # 64-2048, multiple of 16 (auto by default)
---input-image <path>          # Primary input image (optional, file or URL)
---input-image-2 <path>        # Additional reference (optional)
---input-image-3 <path>        # Additional reference (optional)
---input-image-4 <path>        # Additional reference (optional)
---input-image-5 <path>        # Additional reference (experimental multiref)
---input-image-6 <path>        # Additional reference (experimental multiref)
---input-image-7 <path>        # Additional reference (experimental multiref)
---input-image-8 <path>        # Additional reference (experimental multiref)
---prompt-upsampling           # AI prompt enhancement (enabled by default for FLUX.2)
---safety-tolerance <0-5>      # Content moderation level (default: 2)
-```
-
-**Note:** FLUX.2 models support up to 8 input images for advanced multi-reference generation. Dimensions must be divisible by 16 (not 32 like FLUX.1 models).
-
-### Utility Commands
-
-```bash
---examples                    # Show 15+ usage examples with tips
---credits                     # Check account credits balance
---get-result <task_id>        # Poll specific task ID
-```
-
-## API Methods
-
-### Core Generation Methods
-
-#### `generateFluxDev(params)`
-
-Generate image using FLUX.1 [dev].
-
-```javascript
-const task = await api.generateFluxDev({
-  prompt: 'a beautiful landscape',
-  width: 1024,
-  height: 768,
-  steps: 28,
-  guidance: 3,
-  seed: 42,
-  output_format: 'png'
-});
-```
-
-#### `generateFluxPro(params)`
-
-Generate image using FLUX 1.1 [pro].
-
-```javascript
-const task = await api.generateFluxPro({
-  prompt: 'professional portrait',
-  width: 1024,
-  height: 1024,
-  image_prompt: 'base64_or_url',  // Optional Redux
-  seed: 42
-});
-```
-
-#### `generateFluxProUltra(params)`
-
-Generate image using FLUX 1.1 [pro] Ultra.
-
-```javascript
-const task = await api.generateFluxProUltra({
-  prompt: 'cinematic landscape',
-  aspect_ratio: '21:9',
-  raw: true,
-  image_prompt: 'base64_or_url',  // Optional remix
-  image_prompt_strength: 0.3
-});
-```
-
-#### `generateFluxProFill(params)`
-
-Inpainting with FLUX.1 Fill [pro] using masks.
-
-```javascript
-const task = await api.generateFluxProFill({
-  prompt: 'replace with lush green grass',
-  image: 'base64_encoded_image',        // Required
-  mask: 'base64_encoded_mask',          // Required (or use PNG with alpha)
-  steps: 30,
-  guidance: 5,
-  safety_tolerance: 3,
-  output_format: 'png'
-});
-```
-
-**Note:** The `image` parameter is required. Either provide a `mask` parameter, or use a PNG image with an alpha channel (transparency) defining the edit region.
-
-#### `generateFluxProFillFinetuned(params)`
-
-Inpainting with fine-tuned FLUX.1 Fill [pro] model.
-
-```javascript
-const task = await api.generateFluxProFillFinetuned({
-  finetune_id: 'my-custom-model',       // Required
-  prompt: 'apply custom style',         // Optional (default: '')
-  image: 'base64_encoded_image',        // Required
-  mask: 'base64_encoded_mask',          // Required (or use PNG with alpha)
-  finetune_strength: 1.2,               // Optional (default: 1.1, range: 0-2)
-  steps: 35,
-  guidance: 60,
-  safety_tolerance: 2,
-  output_format: 'png'
-});
-```
-
-**Note:** Requires `finetune_id` from your BFL account. Same masking rules as regular Fill apply.
-
-#### `generateFluxProExpand(params)`
-
-Expand/outpaint images with FLUX.1 Expand [pro].
-
-```javascript
-const task = await api.generateFluxProExpand({
-  prompt: 'extend with dramatic sky and clouds',
-  image: 'base64_encoded_image',        // Required
-  top: 512,                              // Pixels to expand at top (0-2048)
-  bottom: 256,                           // Pixels to expand at bottom (0-2048)
-  left: 256,                             // Pixels to expand on left (0-2048)
-  right: 256,                            // Pixels to expand on right (0-2048)
-  steps: 30,                             // 15-50 (default: 50)
-  guidance: 60,                          // 1.5-100 (default: 60)
-  safety_tolerance: 2,                   // 0-6 (default: 2)
-  output_format: 'png',                  // 'jpeg' or 'png'
-  prompt_upsampling: true                // Enable AI prompt enhancement
-});
-```
-
-**Note:** The `image` parameter is required. Specify at least one expansion direction (top, bottom, left, or right) with a value greater than 0.
-
-#### `generateKontextPro(params)`
-
-Edit image using Kontext Pro.
-
-```javascript
-const task = await api.generateKontextPro({
-  prompt: 'make it look like winter',
-  input_image: 'base64_or_url',      // Required
-  input_image_2: 'base64_or_url'     // Optional
-});
-```
-
-#### `generateKontextMax(params)`
-
-Edit image using Kontext Max.
-
-```javascript
-const task = await api.generateKontextMax({
-  prompt: 'enhance colors and details',
-  input_image: 'base64_or_url',      // Required
-  input_image_2: 'base64_or_url'     // Optional
-});
-```
-
-#### `generateFlux2Pro(params)`
-
-Generate or edit image using FLUX.2 [PRO] with multi-image support.
-
-```javascript
-// Text-to-image generation
-const task = await api.generateFlux2Pro({
-  prompt: 'A majestic castle on a cliff',
-  width: 1024,
-  height: 1024
-});
-
-// Image editing with context
-const task = await api.generateFlux2Pro({
-  prompt: 'Add a dragon flying above',
-  input_image: 'base64_or_url',
-  input_image_2: 'base64_or_url'  // Optional additional context
-});
-```
-
-#### `generateFlux2Flex(params)`
-
-Generate or edit image using FLUX.2 [FLEX] with experimental multi-reference.
-
-```javascript
-// Text-to-image generation
-const task = await api.generateFlux2Flex({
-  prompt: 'A serene Japanese garden',
-  width: 1024,
-  height: 768
-});
-
-// Multi-reference generation (up to 8 images)
-const task = await api.generateFlux2Flex({
-  prompt: 'Combine all elements',
-  input_image: 'base64_or_url',
-  input_image_2: 'base64_or_url',
-  input_image_3: 'base64_or_url'
-});
-```
-
-### Utility Methods
-
-#### `getResult(taskId)`
-
-Poll task once for current status.
-
-```javascript
-const result = await api.getResult('abc123');
-if (result.status === 'Ready') {
-  console.log('Image:', result.result.sample);
-}
-```
-
-#### `waitForResult(taskId, options)`
-
-Auto-poll until complete with spinner and retry logic.
-
-```javascript
-const result = await api.waitForResult('abc123', {
-  timeout: 300,      // 5 minutes
-  pollInterval: 2,   // 2 seconds
-  maxRetries: 3,     // retry on transient errors
-  showSpinner: true  // animated spinner
-});
-```
-
-#### `getUserCredits()`
-
-Check account credits balance.
-
-```javascript
-const credits = await api.getUserCredits();
-console.log('Credits:', credits.credits);
-```
-
-#### `getMyFinetunes()`
-
-Get list of all fine-tuned models created by the user.
-
-```javascript
-const { finetunes } = await api.getMyFinetunes();
-console.log('Your finetunes:', finetunes);
-// Example output: ['model-id-1', 'model-id-2', 'custom-style-abc']
-
-// Use a finetune in generation
-if (finetunes.length > 0) {
-  const task = await api.generateFluxProFillFinetuned({
-    finetune_id: finetunes[0],
-    image: 'base64_encoded_image',
-    prompt: 'apply custom style'
-  });
-}
-```
-
-## Examples
-
-**Note:** Examples use `bfl` command (global install). For local install, use `npx bfl` instead.
-
-### Example 1: Basic Text-to-Image
-
-```bash
-bfl --flux-dev \
-  --prompt "a serene mountain landscape at sunset" \
-  --width 1024 \
-  --height 768 \
-  --steps 28 \
-  --guidance 3
-```
-
-### Example 2: High-Quality Cinematic Output
-
-```bash
-bfl --flux-ultra \
-  --prompt "cinematic wide shot of a futuristic city" \
-  --aspect-ratio "21:9" \
-  --raw
-```
-
-### Example 3: Image Editing with Kontext
-
-```bash
-bfl --kontext-pro \
-  --prompt "transform into a watercolor painting" \
-  --input-image ./photos/landscape.jpg
-```
-
-### Example 4: Batch Generation
-
-```bash
-bfl --flux-dev \
-  --prompt "a red apple" \
-  --prompt "a green pear" \
-  --prompt "a yellow banana" \
-  --seed 42
-```
-
-### Example 5: Redux Image-to-Image
-
-```bash
-bfl --flux-pro \
-  --prompt "same style but at night" \
-  --image-prompt ./reference.jpg \
-  --width 1024 \
-  --height 1024
-```
-
-### Example 6: Inpainting with FLUX.1 Fill [pro]
-
-```bash
-# Using explicit mask (works with any image format)
-bfl --flux-fill \
-  --prompt "fill with lush green grass and flowers" \
-  --image ./photos/landscape.jpg \
-  --mask ./photos/landscape_mask.png \
-  --steps 30 \
-  --guidance 5
-
-# Using PNG with alpha channel (no mask needed)
-bfl --flux-fill \
-  --prompt "remove object and fill background" \
-  --image ./photos/image_with_transparency.png \
-  --steps 28
-```
-
-**Note:** JPG/JPEG images require `--mask` parameter. PNG images can use alpha channel (transparency) as the mask.
-
-### Example 7: Image Expansion with FLUX.1 Expand [pro]
-
-```bash
-# Expand image on all sides
-bfl --flux-expand \
-  --prompt "extend with dramatic clouds and mountain vista" \
-  --image ./photos/landscape.jpg \
-  --top 512 --bottom 256 --left 256 --right 256 \
-  --steps 30 \
-  --guidance 60
-
-# Vertical expansion only (portrait extension)
-bfl --flux-expand \
-  --prompt "add sky with clouds above and ground below" \
-  --image ./photos/portrait.jpg \
-  --top 1024 --bottom 512 \
-  --steps 40
-
-# Horizontal expansion with PNG output
-bfl --flux-expand \
-  --prompt "expand cityscape to the sides" \
-  --image ./photos/city.jpg \
-  --left 640 --right 640 \
-  --output-format png \
-  --prompt-upsampling
-```
-
-**Note:** Specify at least one direction (top, bottom, left, right) to expand. Use `--prompt` to guide what content should fill the expanded areas.
-
-### Example 8: Using API Class in Code
-
-```typescript
-// If installed via npm
-import { BflAPI } from 'bfl-api';
-import { imageToBase64 } from 'bfl-api/utils';
-
-// If running from source
-import { BflAPI } from './src/api.js';
-import { imageToBase64 } from './src/utils.js';
-
-const api = new BflAPI();
-
-// Convert local image to base64
-const inputImage = await imageToBase64('./photo.jpg');
-
-// Edit with Kontext Pro
-const task = await api.generateKontextPro({
-  prompt: 'make it look like a vintage photograph',
-  input_image: inputImage
-});
-
-// Wait for result with auto-polling
 const result = await api.waitForResult(task.id, {
-  timeout: 300,
-  showSpinner: true
+  pollingUrl: task.polling_url,   // use the URL the API gave you — it is region-specific
+  timeout: 300,                   // seconds
+  pollInterval: 2,
+  maxRetries: 3,
+  showSpinner: true,
+});
+// result.status === 'Ready'; result.result.sample is the media URL
+```
+
+`getResult(taskId, pollingUrl?)` polls once. Pass the `polling_url` from the submit response: tasks
+are served from a regional host (`api.eu2.bfl.ai`, …) and the global host returns 404 for a task
+that lives elsewhere. The CLI writes `polling_url` into each metadata file for this reason. `getUserCredits()`, `getMyFinetunes()`,
+`getFinetuneDetails(id)` and `deleteFinetune(id)` cover the account endpoints.
+
+Fields you don't set are not sent, so the server's defaults apply. Only the fields each endpoint's
+schema declares are forwarded — see `MODEL_FIELDS` in [`src/config.ts`](src/config.ts).
+
+```typescript
+// Erase with the mask dilated a little further than default
+await api.eraseImage({ image, mask, dilate_pixels: 14 });
+
+// Outpaint a 1024×768 photo onto a 2048×768 canvas, photo flush left
+await api.outpaintImage({ input_image, width: 2048, height: 768, reference_offset_x: 0 });
+
+// Timed keyframes: first image at 0 s, second at 4.5 s, video runs to 5 s
+await api.generateFlux3Video({
+  mode: 'i2v',
+  prompt: 'the scene comes alive',
+  keyframes: [[0, imageA], [4.5, imageB]],
 });
 
-console.log('Generated image:', result.result.sample);
+// Draft → enhance
+const draft = await api.generateFlux3Video({ mode: 't2v', prompt, draft: true });
+const done = await api.waitForResult(draft.id, { pollingUrl: draft.polling_url });
+// download done.result.draft_cache (a .bin) promptly — the URL expires — then:
+await api.generateFlux3Video({ mode: 'draft_enhance', draft_cache: base64OfBin, resolution: 'qhd' });
 ```
 
-### Example 9: FLUX.2 [PRO] Text-to-Image
+## TypeScript
 
-```bash
-bfl --flux-2-pro \
-  --prompt "a majestic castle on a cliff at sunset" \
-  --width 1024 --height 1024
+Everything is typed and exported from the package root:
+
+```typescript
+import type {
+  // per-schema parameter types
+  FluxDevParams, FluxProParams, FluxProUltraParams, FluxProUltraFinetunedParams,
+  FluxProFillParams, FluxProFillFinetunedParams, FluxProExpandParams,
+  KontextProParams, KontextMaxParams,
+  Flux2ProParams, Flux2FlexParams, Flux2KleinParams, Flux2Params /* union, 1.x compat */,
+  FluxDeblurParams, FluxEraseParams, FluxOutpaintParams, FluxVtoParams,
+  Flux3VideoParams, Flux3VideoT2VParams, Flux3VideoI2VParams, Flux3VideoV2VParams,
+  Flux3VideoDraftEnhanceParams, VideoKeyframe, VideoAspectRatio, VideoResolution,
+  FluxVideoEditParams, FluxVideoUpscaleParams,
+  CommonRequestFields, OutputFormat,
+  // responses
+  SubmitResult, TaskResult, TaskStatus, CreditsResult, FinetunesResult,
+  FinetuneDetailsResult, DeleteFinetuneResult,
+  // config
+  BflApiOptions, ModelEndpointKey, ModelInfo, MediaKind, ModelConstraint,
+} from 'bfl-api';
+import { BflHttpError, BflNetworkError, BflTimeoutError, BflTaskError } from 'bfl-api';
+import { MODELS, MODEL_ENDPOINTS, MODEL_FIELDS, MODEL_CONSTRAINTS, validateModelParams, getModelInfo } from 'bfl-api/config';
 ```
 
-### Example 10: FLUX.2 [PRO] Image Editing
+Types are split by *request schema*: `Flux2ProParams` serves both [pro] and [max] because the API
+declares one schema for them; [flex] and [klein] have their own. `Flux3VideoParams` is a
+discriminated union, so `mode: 'i2v'` makes `keyframes` required at compile time.
 
-```bash
-bfl --flux-2-pro \
-  --prompt "add a dragon flying in the sky" \
-  --input-image ./castle.jpg \
-  --width 1024 --height 1024
-```
+## Output and metadata
 
-### Example 11: FLUX.2 [FLEX] Multi-Reference
-
-```bash
-bfl --flux-2-flex \
-  --prompt "combine the subject and style" \
-  --input-image ./subject.jpg \
-  --input-image-2 ./style_reference.jpg
-```
-
-### Example 12: FLUX.2 [FLEX] Experimental Multiref (Up to 8 Images)
-
-```bash
-bfl --flux-2-flex \
-  --prompt "create a scene combining all elements" \
-  --input-image ./img1.jpg \
-  --input-image-2 ./img2.jpg \
-  --input-image-3 ./img3.jpg \
-  --input-image-4 ./img4.jpg \
-  --input-image-5 ./img5.jpg
-```
-
-## Data Organization
-
-Generated images and metadata are organized by model:
-
-```
-datasets/
-└── bfl/
-    ├── flux-dev/
-    │   ├── 2025-01-13_14-30-22_mountain_landscape.jpg
-    │   ├── 2025-01-13_14-30-22_mountain_landscape_metadata.json
-    │   └── ...
-    ├── flux-pro/
-    │   └── ...
-    ├── flux-ultra/
-    │   └── ...
-    ├── flux-pro-fill/
-    │   └── ...
-    ├── flux-2-pro/
-    │   └── ...
-    ├── flux-2-flex/
-    │   └── ...
-    ├── kontext-pro/
-    │   └── ...
-    └── kontext-max/
-        └── ...
-```
-
-**Metadata Format:**
+The CLI saves under `datasets/bfl/<model>/` (or `--output-dir` / `BFL_OUTPUT_DIR`) as
+`<timestamp>_<prompt-slug>.<ext>` plus `…_metadata.json`. The extension follows the media kind and
+format: `.mp4` for video; otherwise `--output-format`, or the model's server default when omitted
+(png for Kontext, deblur, erase, outpaint; jpeg elsewhere).
 
 ```json
 {
   "task_id": "abc123",
-  "model": "flux-dev",
-  "timestamp": "2025-01-13T14:30:22Z",
-  "parameters": {
-    "prompt": "a serene mountain landscape",
-    "width": 1024,
-    "height": 768,
-    "steps": 28,
-    "guidance": 3,
-    "seed": 42
-  },
+  "polling_url": "https://api.eu2.bfl.ai/v1/get_result?id=abc123",
+  "model": "flux-erase",
+  "timestamp": "2026-09-20T14:30:22Z",
+  "parameters": { "image": "<base64 41208 chars>", "mask": "<base64 3320 chars>", "dilate_pixels": 12 },
   "result": {
     "status": "Ready",
-    "image_url": "https://...",
-    "image_path": "datasets/bfl/flux-dev/..."
+    "media_url": "https://…",
+    "output_path": "datasets/bfl/flux-erase/2026-09-20_14-30-22_flux-erase.png",
+    "cost": 0.05
   }
 }
 ```
 
-## Security Features
+## Polling, errors and retries
 
-This service implements production-ready security measures to protect your API keys and prevent common vulnerabilities:
+`get_result` reports `Pending → Reasoning → Generating → Ready`. `waitForResult` keeps polling
+through the first three (showing `progress` when the API reports it) and throws on the terminal
+failures: `Error` (message from `details.error`), `Request Moderated`, `Content Moderated`, and
+`Task not found` (immediately — it will never change).
 
-### API Key Protection
-- **Redacted Logging**: API keys are never logged in full. Logs show only the last 4 characters (e.g., `xxx...abc1234`)
-- **Secure Storage**: API keys read from environment variables or `.env` files (never committed to version control)
-- **Multiple Sources**: Supports CLI flags, environment variables, local `.env`, and global config
+Retries are decided by error *type*, never by message text: a `BflHttpError` with status 502/503,
+a `BflNetworkError` whose `.code` is retryable (reset, refused, DNS, undici's `UND_ERR_*`), or a
+`BflTimeoutError`. Backoff is 2 s / 4 s / 8 s, or exactly the server's `Retry-After` when it sends
+one. A settled task failure throws `BflTaskError` and is never retried — retrying a poll returns
+the same answer. In `NODE_ENV=production` messages are sanitised to generic text.
 
-### Error Message Sanitization
-- **Production Mode**: Set `NODE_ENV=production` to enable generic error messages
-- **Development Mode**: Detailed error messages for debugging (default)
-- **Information Disclosure Prevention**: Production errors don't reveal internal system details
-
-```bash
-# Enable production mode for sanitized errors
-export NODE_ENV=production
-bfl --flux-dev --prompt "a cat"
+```typescript
+import { BflHttpError, BflNetworkError, BflTimeoutError, BflTaskError } from 'bfl-api';
 ```
 
-### SSRF Protection (Server-Side Request Forgery)
-When processing image URLs (for `--image-prompt` or `--input-image`), the service validates and blocks:
-- **Localhost Access**: `127.0.0.1`, `::1`, `localhost`
-- **Private IP Ranges**: `10.x.x.x`, `192.168.x.x`, `172.16-31.x.x`
-- **Link-Local Addresses**: `169.254.x.x` (AWS/Azure metadata endpoints)
-- **Cloud Metadata**: `metadata.google.internal`, `169.254.169.254`
-- **IPv4-Mapped IPv6 Bypass Prevention**: Detects and blocks `[::ffff:127.0.0.1]`, `[::ffff:10.0.0.1]`, etc.
-- **DNS Rebinding Prevention**: Performs DNS resolution to block domains that resolve to internal/private IPs (prevents TOCTOU attacks via wildcard DNS services like nip.io)
-- **HTTP URLs**: Only HTTPS URLs are accepted
-
-This prevents attackers from using the service to access internal network resources, including sophisticated bypass attempts using IPv4-mapped IPv6 addresses and DNS rebinding attacks.
-
-### Image File Validation
-- **Magic Byte Checking**: Validates PNG, JPEG, WebP, and GIF formats by actual file headers (not just extensions)
-- **File Size Limits**: 50MB maximum for downloaded images (prevents memory exhaustion)
-- **Format Verification**: Rejects non-image files masquerading as images
-- **Download Timeouts**: 60-second timeout for image downloads (prevents slowloris attacks)
-
-### HTTPS Enforcement
-- All API base URLs must use HTTPS protocol
-- Constructor throws an error if HTTP URL is provided
-- Prevents man-in-the-middle attacks
-
-### Request Timeout & Size Protection
-- **API Request Timeout**: 30-second timeout for all API calls
-- **Download Timeout**: 60-second timeout for image downloads
-- **Maximum File Size**: 50MB limit for downloaded images
-- **Redirect Limits**: Maximum 5 redirects to prevent redirect loops
-- **DoS Prevention**: Prevents resource exhaustion and slowloris-style attacks
-
-### Parameter Validation
-- Pre-flight validation using `validateModelParams()` before API calls
-- Catches invalid parameters early (saves API credits)
-- Validates:
-  - Width/height (256-1440, divisible by 32)
-  - Steps (1-50 for FLUX.1 [dev], 15-50 for FLUX.1 Fill [pro])
-  - Guidance (1.5-5 for FLUX.1 [dev], 1.5-100 for FLUX.1 Fill [pro])
-  - Aspect ratios (valid ratios like "16:9", "21:9")
-  - Prompt length (max 10,000 characters)
-  - Mask requirement (JPG/JPEG requires --mask parameter)
-
-## Error Handling
-
-The service includes comprehensive error handling with retry logic:
-
-### Automatic Retries
-
-Transient errors (network, 502, 503) are automatically retried with exponential backoff:
-- Retry 1: 2 seconds
-- Retry 2: 4 seconds
-- Retry 3: 8 seconds
-
-### Non-Retriable Errors
-
-- **Content Moderation**: Prompt flagged by safety filters
-- **Authentication (401)**: Invalid API key
-- **Validation (422)**: Invalid parameters
-- **Rate Limit (429)**: Too many requests
-
-### Polling with Spinner
-
-The CLI shows an animated spinner during generation:
+Result URLs are signed and expire after about an hour — download promptly.
 
 ```
-⠋ Generating... Pending (12s elapsed, ~288s remaining)
-```
-
-On completion:
-
-```
+⠋ Generating... Generating 40% (12s elapsed, ~288s remaining)
 ✓ Generation complete! (45.2s)
 ```
 
+## Security
+
+- **API key** never appears in logs (redacted to the last four characters) and is sent only to
+  `api.bfl.ai` — never to result download URLs.
+- **SSRF protection** on every URL input and download: private/loopback/link-local ranges are
+  blocked, including IPv4-mapped IPv6, with DNS-rebinding prevention.
+- **File validation** by magic bytes (PNG/JPEG/WebP/GIF for images, ISO BMFF `ftyp` for video) —
+  the extension is not trusted.
+- **Size limits enforced while streaming**, not after buffering: 50 MB video upload (the API's
+  ceiling), 50 MB image download, 500 MB video download. A body that crosses the ceiling is
+  cancelled mid-flight rather than measured once it is already in memory.
+- **Redirects are bounded (5) and re-validated.** Every hop is put back through the SSRF check
+  before it is followed, so a validated URL cannot `302` to an internal address or downgrade to
+  http. Timeouts are idle-based (30 s API, 60 s image, 120 s video), so a slow-but-progressing
+  download is not killed; HTTPS is enforced for `baseUrl`.
+- **Known limitation:** DNS rebinding is narrowed, not closed — the hostname is resolved and
+  checked, then resolved again by the HTTP client. See `docs/DECISIONS.md` #12.
+- **Destructive CLI actions** (`--delete-finetune`) require `--yes`.
+
+## Spec drift check
+
+```bash
+npm run check:spec            # compare MODELS / MODEL_FIELDS / MODEL_CONSTRAINTS to the live OpenAPI spec
+npm run check:spec:control    # prove the check can fail (seeds five drifts, requires each caught)
+npm run check:spec:snapshot   # offline, against docs/openapi-snapshot-<date>.json
+```
+
+For every model it requires the request schema's property set to equal the fields the wrapper
+forwards, every stated range and enum to match the constraint table, and the `output_format`
+default to match the registry. CI runs `--control` then the live check before the tests. Where the
+wrapper is deliberately stricter than the spec it reports INFO, not FAIL. Rationale and history in
+[`docs/DECISIONS.md`](docs/DECISIONS.md).
+
+## Upgrading to 2.0
+
+Four contract changes, all driven by the API having moved:
+
+1. **`generateFlux2Pro` no longer takes `prompt_upsampling`.** The API replaced it with
+   `disable_pup` (upsampling is on by default; set `disable_pup: true` for a verbatim prompt).
+   `Flux2Params` is now a union — use `Flux2ProParams` / `Flux2FlexParams` / `Flux2KleinParams`.
+2. **Kontext no longer requires `input_image`** — text-only generation works — and now forwards
+   `aspect_ratio` and `prompt_upsampling`.
+3. **Generation methods return `SubmitResult`** (`{ id, polling_url, cost, … }`) instead of
+   `TaskResult`; `TaskResult.status` is the full `TaskStatus` union and gained `progress`,
+   `details`, `preview`, `cost`. `Request Moderated` is now terminal.
+4. **CLI file extensions follow the server default** when `--output-format` is omitted: Kontext
+   output is now saved as `.png` (it always was PNG data). Video saves as `.mp4`.
+
+Also new: `webp` is accepted everywhere; `user`/`webhook_url`/`webhook_secret` are forwarded;
+`MODEL_ENDPOINTS` is derived from a richer `MODELS` registry; `MODEL_CONSTRAINTS` entries may carry
+a `fields` map for 2.0-era parameters.
+
+## Development
+
+```bash
+npm run build                 # tsc → dist/
+npm test                      # 342 tests (vitest)
+npm run test:coverage         # 90.5% lines
+npm run verify                # build + spec control + live spec check + tests — what CI runs
+npm run bfl -- --examples     # run the CLI from source
+```
+
+Publishing is manual: bump `version` in `package.json`, add a CHANGELOG entry, `npm run verify`, `npm publish`, then tag `v<version>`.
+
 ## Troubleshooting
 
-### API Key Not Found
-
-```
-Error: BFL_API_KEY not found in environment variables
-```
-
-**Solution:** Create `.env` file with your API key:
-```bash
-BFL_API_KEY=your_api_key_here
-```
-
-### Content Moderated
-
-```
-Error: Content was moderated. Please revise your prompt.
-```
-
-**Solution:** Your prompt was flagged by safety filters. Try:
-- Revising your prompt to be more appropriate
-- Lowering `--safety-tolerance` (0-6, lower is stricter)
-
-### Authentication Failed
-
-```
-Error: Authentication failed. Please check your API key.
-```
-
-**Solution:**
-1. Verify your API key is correct in `.env`
-2. Check your account is active at https://docs.bfl.ml/quick_start/introduction
-3. Generate a new API key if needed
-
-### Timeout
-
-```
-Error: Timeout after 300 seconds
-```
-
-**Solution:**
-- Increase timeout: `--timeout 600`
-- Complex generations may take longer
-- Check API status at https://status.bfl.ml/
-
-### Module Not Found
-
-```
-Error: Cannot find module 'axios'
-```
-
-**Solution:** Install dependencies:
-```bash
-cd bfl-api
-npm install
-```
-
-## Development Scripts
-
-**Note:** These npm scripts are only available when working from the source repository (cloned from GitHub). They are not available after installing via npm.
-
-If you're using the installed package, use `bfl` (global) or `npx bfl` (local) instead.
-
-### For Source Development
-```bash
-npm run bfl              # Run CLI
-npm run bfl:help         # Show help
-npm run bfl:examples     # Show 15+ usage examples
-npm run bfl:credits      # Check credits
-npm run bfl:dev          # Use FLUX.1 [dev]
-npm run bfl:pro          # Use FLUX 1.1 [pro]
-npm run bfl:ultra        # Use FLUX Ultra
-npm run bfl:kontext-pro  # Use Kontext Pro
-npm run bfl:kontext-max  # Use Kontext Max
-```
-
-Pass additional flags with `--`:
-
-```bash
-npm run bfl:dev -- --prompt "a cat" --width 512 --height 512
-```
-
-### Testing Commands
-```bash
-npm test                 # Run all 271 tests with Vitest
-npm run test:watch       # Watch mode for development
-npm run test:ui          # Interactive UI in browser
-npm run test:coverage    # Generate coverage report (89.58% overall)
-```
-
-**Test Coverage:**
-- Overall: 89.58% lines, 90.19% branches
-- api.ts: 94.76% lines (all generation methods, polling, retries)
-- utils.ts: 82.71% lines (file I/O, image conversion, validation)
-- config.ts: 95.87% lines (parameter validation, configuration)
-
-Tests validate actual behavior including:
-- All 10 generation methods with proper request/response handling
-- Comprehensive polling logic with timeout, retry, and exponential backoff
-- Image conversion pipeline (file → base64, URL → base64)
-- File I/O operations (read, write, directories)
-- Security features (SSRF protection, API key redaction, error sanitization)
-- Parameter validation (pre-flight checks to save API credits)
-
-## Rate Limits
-
-BFL API rate limits vary by account tier. The service automatically:
-- Polls every 2 seconds (configurable)
-- Retries with exponential backoff on 429 errors
-- Handles transient errors gracefully
+- **`BFL_API_KEY not found`** — see [Authentication](#authentication); `~/.bfl/.env` is the
+  global-install path.
+- **`Invalid parameters: …`** (422) with a video endpoint — the video schemas reject unknown
+  fields. Use `--dry-run` to see the exact payload; only the fields listed for that mode are valid.
+- **`402 Insufficient credits` on a video endpoint with credits to spare** — observed as
+  back-pressure, not a balance signal: three video submissions fired back-to-back after a long
+  render were all refused with 402 at ~1013 credits, then each succeeded on the first attempt when
+  run one at a time (drawing 15 / 69 / 205). Space out video submissions rather than topping up.
+  This is not retried automatically, since a real balance failure should not loop.
+- **`Generation failed: Invalid or corrupted image input` on v2v** — a draft render was rejected as
+  `start_video` in testing; a full render was accepted. Use a non-draft clip.
+- **`Content was moderated` / `Request was moderated`** — revise the prompt or inputs; these are not
+  retried. Video tolerates less (`safety_tolerance` ≤4) than images.
+- **`Task not found` / 404 from `--get-result`** — tasks are regional; pass the `polling_url` from
+  the submit response or the metadata file (`--polling-url`). Otherwise the id is wrong or the task
+  expired; results are retained ~1 hour.
+- **Timeout** — video renders can take several minutes; the CLI defaults to 900 s for video, or
+  pass `--timeout`.
+- **Kontext output saved as `.jpg` in 1.x** — it was PNG data with the wrong extension; 2.0
+  names it `.png`.
+- **`check:spec` fails in CI** — BFL changed the API. The message names the model and field; update
+  `MODEL_FIELDS` / `MODEL_CONSTRAINTS` / the params type, and re-snapshot with `--save`.
 
 ## Additional Resources
 
-- [BFL API Documentation](https://docs.bfl.ml/)
-- [BFL Website](https://blackforestlabs.ai/)
+- [BFL API Documentation](https://docs.bfl.ml/) · [OpenAPI](https://api.bfl.ai/openapi.json)
+- [BFL Dashboard](https://dashboard.bfl.ai/) · [Status Page](https://status.bfl.ml/)
 - [FLUX Models Overview](https://blackforestlabs.ai/flux-models/)
-- [API Status Page](https://status.bfl.ml/)
 
 ## Related Packages
 
-This package is part of the img-gen ecosystem. Check out these other AI generation services:
-
-- [`ideogram-api`](https://github.com/aself101/ideogram-api) - Ideogram API wrapper for image generation, editing, remixing, and manipulation
-- [`stability-ai-api`](https://github.com/aself101/stability-ai-api) - Stability AI API wrapper for Stable Diffusion 3.5 and image upscaling
-- [`google-genai-api`](https://github.com/aself101/google-genai-api) - Google Generative AI (Imagen) wrapper
-- [`openai-api`](https://github.com/aself101/openai-api) - OpenAI API wrapper for DALL-E and GPT Image generation
+Part of the img-gen ecosystem:
+[`ideogram-api`](https://github.com/aself101/ideogram-api) ·
+[`stability-ai-api`](https://github.com/aself101/stability-ai-api) ·
+[`google-genai-api`](https://github.com/aself101/google-genai-api) ·
+[`openai-api`](https://github.com/aself101/openai-api)
 
 ---
 
@@ -1266,10 +433,4 @@ This package is part of the img-gen ecosystem. Check out these other AI generati
 
 ## License
 
-This project is licensed under the MIT License (with Extra Silliness) - see the [LICENSE](../LICENSE) file for details.
-
-By using this software, you agree to generate at least one image of a cat wearing sunglasses (optional but encouraged).
-
----
-
-**Note:** This service implements image generation endpoints. Fine-tuning endpoints can be added as needed following the same patterns established in the API class.
+MIT (with Extra Silliness) — see [LICENSE](LICENSE).

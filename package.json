@@ -1,7 +1,7 @@
 {
   "name": "bfl-api",
-  "version": "1.7.1",
-  "description": "Black Forest Labs API wrapper - FLUX and Kontext image generation for Node.js with CLI",
+  "version": "2.0.0",
+  "description": "Black Forest Labs API wrapper - FLUX.1, FLUX.2, Kontext, FLUX Tools and FLUX 3 video generation for Node.js with CLI",
   "main": "dist/api.js",
   "types": "dist/api.d.ts",
   "type": "module",
@@ -29,7 +29,8 @@
   "files": [
     "dist",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "CHANGELOG.md"
   ],
   "scripts": {
     "build": "tsc",
@@ -45,12 +46,18 @@
     "bfl:expand": "tsx src/cli.ts --flux-expand",
     "bfl:kontext-pro": "tsx src/cli.ts --kontext-pro",
     "bfl:kontext-max": "tsx src/cli.ts --kontext-max",
+    "bfl:flux-2-pro": "tsx src/cli.ts --flux-2-pro",
+    "bfl:flux-2-max": "tsx src/cli.ts --flux-2-max",
+    "bfl:video": "tsx src/cli.ts --flux-3-video",
     "test": "vitest run",
     "test:watch": "vitest watch",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest run --coverage",
-    "prepublishOnly": "npm run build",
-    "semantic-release": "semantic-release"
+    "check:spec": "tsx scripts/check-spec-drift.ts",
+    "check:spec:snapshot": "tsx scripts/check-spec-drift.ts --snapshot docs/openapi-snapshot-2026-09-20.json",
+    "check:spec:control": "tsx scripts/check-spec-drift.ts --control",
+    "verify": "npm run build && npm run check:spec:control && npm run check:spec && npm test",
+    "prepublishOnly": "npm run build"
   },
   "keywords": [
     "bfl",
@@ -65,7 +72,19 @@
     "text-to-image",
     "image-to-image",
     "cli",
-    "typescript"
+    "typescript",
+    "flux-2",
+    "flux-3",
+    "klein",
+    "video-generation",
+    "text-to-video",
+    "image-to-video",
+    "video-edit",
+    "video-upscale",
+    "inpainting",
+    "outpainting",
+    "virtual-try-on",
+    "deblur"
   ],
   "author": "img-gen Contributors",
   "license": "MIT",
@@ -78,24 +97,16 @@
   },
   "homepage": "https://github.com/aself101/bfl-api#readme",
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=22.0.0"
   },
   "dependencies": {
-    "axios": "^1.6.2",
     "commander": "^11.1.0",
     "dotenv": "^16.3.1",
     "winston": "^3.11.0"
   },
   "devDependencies": {
-    "@semantic-release/changelog": "^6.0.3",
-    "@semantic-release/commit-analyzer": "^13.0.1",
-    "@semantic-release/git": "^10.0.1",
-    "@semantic-release/github": "^11.0.6",
-    "@semantic-release/npm": "^12.0.2",
-    "@semantic-release/release-notes-generator": "^14.1.0",
     "@types/node": "^24.10.1",
     "@vitest/coverage-v8": "^4.0.10",
-    "semantic-release": "^24.2.9",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "vitest": "^4.0.10"
