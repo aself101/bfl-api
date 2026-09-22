@@ -97,14 +97,28 @@ Purpose: confirm the hand-rolled HTTP layer behaves identically against the real
 | video-t2v | OK | — | 69.2 |  |
 | video-draft-enhance | OK | — | 46.9 |  |
 | video-i2v | OK | — | 101.9 | two plain keyframes spread across the duration |
-| video-v2v | FAIL | — | — | blocked: API returned 402 Insufficient credits (account-side — a raw urllib call with the wrapper out of the loop returns the same) |
-| video-edit | FAIL | — | — | blocked: 402 Insufficient credits |
-| video-upscale | FAIL | — | — | blocked: 402 Insufficient credits |
+| video-v2v | FAIL then **OK** | 205 (settled) | 154.6 | 402 back-to-back; succeeded when run alone — see Throttling below |
+| video-edit | FAIL then **OK** | 15 (settled) | 32.9 | same |
+| video-upscale | FAIL then **OK** | 69 (settled) | 52.7 | same |
 
-**18 of 21 endpoints re-verified live on fetch.** The three video endpoints not covered
-(`v2v`, `video-edit`, `video-upscale`) were refused by the API with 402 before any generation
-ran; all three passed on axios in the run above, and their request payloads are unchanged —
-verified by `--dry-run` and by the payload comparison below.
+**21 of 21 endpoints verified live on fetch.**
+
+### Throttling presents as `402 Insufficient credits`
+
+Three video endpoints (`v2v`, `video-edit`, `video-upscale`) were refused with
+`402 {"detail":"Insufficient credits"}` at submit, immediately, when run back-to-back right after
+a 101 s i2v render — with **1013.4 credits on the account**. Reproduced with a raw `urllib` call
+with the wrapper entirely out of the loop, so it is the API's own response, not the client's.
+
+Re-run **one at a time, each waiting for its predecessor to settle**, all three succeeded on the
+first attempt and drew 15 / 69 / 205 credits (1013.4 → 998.4 → 929.4 → 724.4). The balance was
+never the constraint.
+
+So on the FLUX 3 video endpoints, a 402 is not reliably a balance signal — it also covers
+submitting while prior video work is still settling. Treat it as back-pressure: wait and retry
+rather than topping up. The wrapper does **not** retry 402 (it is not in the transient set), which
+is the right default — a genuine balance failure should not be retried in a loop — but callers
+batching video work should space their submissions.
 
 **Payload equivalence.** Comparing the `parameters` block of every metadata file across the two
 runs (base64 inputs hashed): **16 of 17 models produced byte-identical request payloads**. The

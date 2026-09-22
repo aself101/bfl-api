@@ -394,6 +394,11 @@ Publishing is manual: bump `version` in `package.json`, add a CHANGELOG entry, `
   global-install path.
 - **`Invalid parameters: …`** (422) with a video endpoint — the video schemas reject unknown
   fields. Use `--dry-run` to see the exact payload; only the fields listed for that mode are valid.
+- **`402 Insufficient credits` on a video endpoint with credits to spare** — observed as
+  back-pressure, not a balance signal: three video submissions fired back-to-back after a long
+  render were all refused with 402 at ~1013 credits, then each succeeded on the first attempt when
+  run one at a time (drawing 15 / 69 / 205). Space out video submissions rather than topping up.
+  This is not retried automatically, since a real balance failure should not loop.
 - **`Generation failed: Invalid or corrupted image input` on v2v** — a draft render was rejected as
   `start_video` in testing; a full render was accepted. Use a non-draft clip.
 - **`Content was moderated` / `Request was moderated`** — revise the prompt or inputs; these are not
