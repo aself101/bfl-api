@@ -1,11 +1,11 @@
-# Black Forest Labs API — Node.js wrapper and CLI
+# BFL (FLUX) Image & Video Generation — Node.js wrapper and CLI
 
 [![npm version](https://img.shields.io/npm/v/bfl-api.svg)](https://www.npmjs.com/package/bfl-api)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node.js Version](https://img.shields.io/node/v/bfl-api)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-blue.svg)](https://www.typescriptlang.org/)
-[![Tests](https://img.shields.io/badge/tests-342%20passing-brightgreen)](test/)
-[![Coverage](https://img.shields.io/badge/coverage-90.5%25-brightgreen)](test/)
+[![Tests](https://img.shields.io/badge/tests-364%20passing-brightgreen)](test/)
+[![Coverage](https://img.shields.io/badge/coverage-90.8%25-brightgreen)](test/)
 
 A TypeScript/Node.js wrapper for the [Black Forest Labs API](https://docs.bfl.ml/) covering every
 generation endpoint BFL publishes: **FLUX.1**, **FLUX.2** (pro / flex / max / klein), **Kontext**,
@@ -170,7 +170,7 @@ Requires Node 22+ (native `fetch`, `AbortSignal.timeout`).
 
 ## CLI
 
-```
+```text
 bfl <model flag> [--prompt "text"...] [inputs] [parameters] [options]
 ```
 
@@ -227,21 +227,28 @@ Fields you don't set are not sent, so the server's defaults apply. Only the fiel
 schema declares are forwarded — see `MODEL_FIELDS` in [`src/config.ts`](src/config.ts).
 
 ```typescript
+import { imageToBase64 } from 'bfl-api/utils';
+
+// Every image/video field takes base64 or an https URL; imageToBase64 handles
+// local files (and validates them) for you.
+const image = await imageToBase64('./photo.jpg');
+const mask = await imageToBase64('./mask.png');
+
 // Erase with the mask dilated a little further than default
 await api.eraseImage({ image, mask, dilate_pixels: 14 });
 
 // Outpaint a 1024×768 photo onto a 2048×768 canvas, photo flush left
-await api.outpaintImage({ input_image, width: 2048, height: 768, reference_offset_x: 0 });
+await api.outpaintImage({ input_image: image, width: 2048, height: 768, reference_offset_x: 0 });
 
 // Timed keyframes: first image at 0 s, second at 4.5 s, video runs to 5 s
 await api.generateFlux3Video({
   mode: 'i2v',
   prompt: 'the scene comes alive',
-  keyframes: [[0, imageA], [4.5, imageB]],
+  keyframes: [[0, image], [4.5, mask]],
 });
 
 // Draft → enhance
-const draft = await api.generateFlux3Video({ mode: 't2v', prompt, draft: true });
+const draft = await api.generateFlux3Video({ mode: 't2v', prompt: 'a fox in the woods', draft: true });
 const done = await api.waitForResult(draft.id, { pollingUrl: draft.polling_url });
 // download done.result.draft_cache (a .bin) promptly — the URL expires — then:
 await api.generateFlux3Video({ mode: 'draft_enhance', draft_cache: base64OfBin, resolution: 'qhd' });
@@ -266,11 +273,57 @@ import type {
   // responses
   SubmitResult, TaskResult, TaskStatus, CreditsResult, FinetunesResult,
   FinetuneDetailsResult, DeleteFinetuneResult,
-  // config
+  // polling / validation / config
+  WaitResultOptions, ValidationResult, Flux3VideoMode,
   BflApiOptions, ModelEndpointKey, ModelInfo, MediaKind, ModelConstraint,
 } from 'bfl-api';
 import { BflHttpError, BflNetworkError, BflTimeoutError, BflTaskError } from 'bfl-api';
-import { MODELS, MODEL_ENDPOINTS, MODEL_FIELDS, MODEL_CONSTRAINTS, validateModelParams, getModelInfo } from 'bfl-api/config';
+```
+
+### Subpath exports
+
+Two subpaths expose the pieces the client is built from. Both are public and typed.
+
+```typescript
+// bfl-api/config — the endpoint registry and pre-flight validation
+import {
+  MODELS,              // per-model path, label, media kind, default output format
+  MODEL_ENDPOINTS,     // model key -> request path
+  MODEL_FIELDS,        // exact request fields forwarded per model
+  MODEL_CONSTRAINTS,   // ranges/enums enforced before spending credits
+  FLUX3_VIDEO_MODE_FIELDS,
+  MODEL_KEYS,
+  validateModelParams, // (model, params) => { valid, errors }
+  getModelInfo,
+  getModelConstraints,
+  getBflApiKey, validateApiKeyFormat,
+  getOutputDir, getPollInterval, getTimeout,
+  BASE_URL, US_BASE_URL, DEFAULT_POLL_INTERVAL, DEFAULT_TIMEOUT, MAX_RETRIES,
+} from 'bfl-api/config';
+
+// bfl-api/utils — input preparation, downloads, and the shared logger
+import {
+  imageToBase64,       // local file or URL -> base64, with validation
+  videoToBase64,       // local file -> base64; URLs pass through
+  fileToBase64, urlToBase64,
+  validateImageUrl,    // the SSRF check used on every URL and redirect hop
+  validateImagePath, validateImageFile, validateVideoPath,
+  downloadImage, downloadVideo, downloadMedia,
+  promptToFilename, generateTimestampedFilename,
+  ensureDirectory, writeToFile, readFromFile,
+  createSpinner, pause, randomNumber,
+  setLogLevel, logger,
+  MAX_VIDEO_UPLOAD_BYTES, MAX_DOWNLOAD_BYTES,
+} from 'bfl-api/utils';
+```
+
+`validateModelParams` is worth knowing about on its own: it is the same
+pre-flight check the CLI runs, so you can reject a bad request locally instead
+of paying for the round trip.
+
+```typescript
+const { valid, errors } = validateModelParams('flux-2-flex', { guidance: 11 });
+// valid === false, errors === ['guidance must be between 1.5 and 10 for flux-2-flex']
 ```
 
 Types are split by *request schema*: `Flux2ProParams` serves both [pro] and [max] because the API
@@ -319,7 +372,7 @@ import { BflHttpError, BflNetworkError, BflTimeoutError, BflTaskError } from 'bf
 
 Result URLs are signed and expire after about an hour — download promptly.
 
-```
+```text
 ⠋ Generating... Generating 40% (12s elapsed, ~288s remaining)
 ✓ Generation complete! (45.2s)
 ```
@@ -380,8 +433,8 @@ a `fields` map for 2.0-era parameters.
 
 ```bash
 npm run build                 # tsc → dist/
-npm test                      # 342 tests (vitest)
-npm run test:coverage         # 90.5% lines
+npm test                      # 364 tests (vitest)
+npm run test:coverage         # 90.8% lines
 npm run verify                # build + spec control + live spec check + tests — what CI runs
 npm run bfl -- --examples     # run the CLI from source
 ```

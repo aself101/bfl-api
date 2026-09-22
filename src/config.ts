@@ -39,13 +39,22 @@ if (existsSync(globalConfigPath)) {
   dotenv.config({ path: globalConfigPath });
 }
 
-// BFL API Base URLs
+/**
+ * Global API entry point. Submissions are routed from here to a regional host;
+ * the response's `polling_url` names the one that owns the task.
+ */
 export const BASE_URL = 'https://api.bfl.ai';
+
+/** US regional entry point, for callers who must pin submissions to that region. */
 export const US_BASE_URL = 'https://api.us1.bfl.ai';
 
-// Default polling configuration
-export const DEFAULT_POLL_INTERVAL = 2; // seconds
-export const DEFAULT_TIMEOUT = 300; // seconds (5 minutes)
+/** Default seconds between polls while a task is in flight. */
+export const DEFAULT_POLL_INTERVAL = 2;
+
+/** Default seconds to wait for a task to reach a terminal status (5 minutes). */
+export const DEFAULT_TIMEOUT = 300;
+
+/** Default retry budget for transient failures during polling. */
 export const MAX_RETRIES = 3;
 
 /**

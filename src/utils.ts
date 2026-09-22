@@ -726,4 +726,8 @@ export function setLogLevel(level: string): void {
   logger.level = level.toLowerCase();
 }
 
+/**
+ * Shared winston logger used across the library and CLI. Level is controlled by
+ * {@link setLogLevel}; pass `NONE` to silence it entirely.
+ */
 export { logger };

@@ -262,7 +262,7 @@ export class BflAPI {
 
     const verb = method.toUpperCase();
     if (verb !== 'GET' && verb !== 'POST') {
-      throw new Error(`Unsupported HTTP method: ${method}`);
+      throw new Error(`Unsupported HTTP method: ${method} (expected GET or POST)`);
     }
 
     try {
@@ -641,6 +641,13 @@ export class BflAPI {
    *
    * @param params - Generation parameters
    * @returns Task object with id, polling_url, cost, input_mp, output_mp
+   *
+   * @example
+   * const task = await api.generateFlux2Max({
+   *   prompt: 'A magazine cover combining these',
+   *   input_image: 'base64_or_url',
+   *   input_image_2: 'base64_or_url'
+   * });
    */
   async generateFlux2Max(params: Flux2ProParams): Promise<SubmitResult> {
     return this._submitGeneration('flux-2-max', this._flux2ProPayload(params));
@@ -682,6 +689,9 @@ export class BflAPI {
    *
    * @param params - Generation parameters
    * @returns Task object with id, polling_url, cost, input_mp, output_mp
+   *
+   * @example
+   * const task = await api.generateFlux2Klein4b({ prompt: 'a red bicycle', width: 768, height: 768 });
    */
   async generateFlux2Klein4b(params: Flux2KleinParams): Promise<SubmitResult> {
     return this._submitGeneration('flux-2-klein-4b', this._flux2KleinPayload(params));
@@ -693,6 +703,9 @@ export class BflAPI {
    *
    * @param params - Generation parameters
    * @returns Task object with id, polling_url, cost, input_mp, output_mp
+   *
+   * @example
+   * const task = await api.generateFlux2Klein9b({ prompt: 'the bicycle at night', input_image: 'base64_or_url' });
    */
   async generateFlux2Klein9b(params: Flux2KleinParams): Promise<SubmitResult> {
     return this._submitGeneration('flux-2-klein-9b', this._flux2KleinPayload(params));

@@ -412,7 +412,7 @@ function getSelectedModel(options: CliOptions): ModelEndpointKey | null {
     .filter(([flag]) => (options as unknown as Record<string, unknown>)[flag])
     .map(([, model]) => model);
   if (selected.length > 1) {
-    throw new Error(`Select exactly one model (got: ${selected.join(', ')})`);
+    throw new Error(`Invalid input: select exactly one model (got: ${selected.join(', ')})`);
   }
   return selected[0] ?? null;
 }
@@ -773,7 +773,7 @@ async function generate(
     // Range/enum validation against the model's constraints
     const validation = validateModelParams(model, params);
     if (!validation.valid) {
-      throw new Error(`Parameter validation failed:\n  - ${validation.errors.join('\n  - ')}`);
+      throw new Error(`Invalid input:\n  - ${validation.errors.join('\n  - ')}`);
     }
 
     // Dry run check
@@ -875,7 +875,10 @@ async function generate(
   } catch (error) {
     const err = error as Error;
     logger.error('='.repeat(60));
-    logger.error(`${batchPrefix}Generation failed: ${err.message}`);
+    // A local validation failure never reached the API — calling it a
+    // "generation failure" would point the user at the wrong thing.
+    const label = err.message.startsWith('Invalid input') ? '' : 'Generation failed: ';
+    logger.error(`${batchPrefix}${label}${err.message}`);
     logger.error('='.repeat(60));
 
     return {
@@ -930,7 +933,7 @@ function validateInputs(model: ModelEndpointKey, options: CliOptions): void {
   }
 
   if (errors.length > 0) {
-    throw new Error(`Input validation failed:\n  - ${errors.join('\n  - ')}`);
+    throw new Error(`Invalid input:\n  - ${errors.join('\n  - ')}`);
   }
 }
 
@@ -1158,18 +1161,23 @@ async function main(): Promise<void> {
   try {
     model = getSelectedModel(options);
   } catch (error) {
-    logger.error(`Error: ${(error as Error).message}`);
+    logger.error((error as Error).message);
     process.exit(1);
   }
   if (!model) {
-    program.outputHelp();
+    // Say what is wrong before dumping ~130 lines of help — otherwise the user
+    // has to infer the cause from a wall of text with no diagnostic in it.
+    logger.error(
+      `Invalid input: no model selected. Pass exactly one model flag, e.g. --flux-2-pro (image) or --flux-3-video (video).`
+    );
+    logger.error('Run `bfl --help` for the full list, or `bfl --examples` for one example per model.');
     process.exit(1);
   }
 
   // Validate prompts
   const prompts = options.prompt && options.prompt.length > 0 ? options.prompt : [''];
   if (prompts[0] === '' && !PROMPT_OPTIONAL.has(model) && options.videoMode !== 'draft_enhance') {
-    logger.error(`Error: ${MODELS[model].label} requires --prompt`);
+    logger.error(`Invalid input: ${MODELS[model].label} requires --prompt`);
     process.exit(1);
   }
 
@@ -1178,7 +1186,7 @@ async function main(): Promise<void> {
     validateInputs(model, options);
   } catch (error) {
     const err = error as Error;
-    logger.error(`Error: ${err.message}`);
+    logger.error(err.message);
     process.exit(1);
   }
 
