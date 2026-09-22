@@ -1,4 +1,4 @@
-# Live battery — 2026-09-21
+# Live battery — 2026-09-21 (axios) and 2026-09-22 (native fetch)
 
 Every endpoint the wrapper exposes, run through the built CLI (`dist/cli.js`) against the
 production API on 2026-09-21, from commit `cc4bc6e` plus the two fixes this run produced.
@@ -63,3 +63,57 @@ FLUX.1-era endpoints (dev, pro, ultra, fill, expand, kontext) and flux-3-video d
 4. Nothing in the constraint table was contradicted: every range the wrapper enforces was
    accepted at its edges where exercised (dilate 12, guidance 40/50 on fill/expand, flex
    guidance 4 / steps 30, upscale 1.5 / creativity 0, video safety 2, klein 768×1024).
+
+---
+
+## Re-run on native fetch — 2026-09-22
+
+The same battery after the axios → fetch migration (commit `49df7d6`), on Node 22.
+Purpose: confirm the hand-rolled HTTP layer behaves identically against the real API.
+
+| run | result | cost | wall s | notes |
+|---|---|---|---|---|
+| flux-dev | OK | — | 4.6 |  |
+| flux-pro | OK | — | 2.4 |  |
+| flux-ultra | OK | — | 10.8 |  |
+| kontext-pro | OK | — | 6.6 |  |
+| kontext-max | OK | — | 8.6 |  |
+| flux-2-pro | OK | 6 | 11.6 |  |
+| flux-2-flex | OK | 10 | 8.8 |  |
+| flux-2-max | OK | 16 | 40.6 |  |
+| flux-2-klein-9b | OK | 1.5 | 4.9 |  |
+| flux-2-klein-4b | OK | 1.4 | 2.3 |  |
+| flux-fill | OK | — | 4.6 |  |
+| flux-expand | OK | — | 22.7 |  |
+| flux-deblur | OK | 3 | 2.4 |  |
+| flux-erase | OK | 3 | 2.3 |  |
+| flux-outpaint | OK | 4.5 | 2.3 |  |
+| flux-outpaint-high | OK | 20 | 32.2 |  |
+| flux-vto | OK | 4.75 | 7.1 |  |
+| flux-ultra-finetuned-x | FAIL | — | — | bogus finetune_id — identical 400 text to the axios run |
+| flux-fill-finetuned-x | FAIL | — | — | bogus finetune_id — identical 400 text |
+| finetune-details-x | FAIL | — | — | bogus id — identical 404 text |
+| video-t2v-draft | OK | — | 34.1 | draft cache downloaded automatically to <name>.draft.bin |
+| video-t2v | OK | — | 69.2 |  |
+| video-draft-enhance | OK | — | 46.9 |  |
+| video-i2v | OK | — | 101.9 | two plain keyframes spread across the duration |
+| video-v2v | FAIL | — | — | blocked: API returned 402 Insufficient credits (account-side — a raw urllib call with the wrapper out of the loop returns the same) |
+| video-edit | FAIL | — | — | blocked: 402 Insufficient credits |
+| video-upscale | FAIL | — | — | blocked: 402 Insufficient credits |
+
+**18 of 21 endpoints re-verified live on fetch.** The three video endpoints not covered
+(`v2v`, `video-edit`, `video-upscale`) were refused by the API with 402 before any generation
+ran; all three passed on axios in the run above, and their request payloads are unchanged —
+verified by `--dry-run` and by the payload comparison below.
+
+**Payload equivalence.** Comparing the `parameters` block of every metadata file across the two
+runs (base64 inputs hashed): **16 of 17 models produced byte-identical request payloads**. The
+single difference is `flux-2-klein-4b`, where the two runs were deliberately given different
+prompts and dimensions — the first run used it to generate the try-on person fixture.
+
+**Error-path equivalence.** The three expected rejections returned identical message text under
+both clients (`HTTP 400: Finetune not found or not ready`, `HTTP 404: Finetune not found or
+access denied`), confirming the new `BflHttpError` mapping reproduces what axios surfaced.
+
+**Timings** are within normal API variance in both directions (e.g. `flux-expand` 6.5s → 22.7s,
+`flux-outpaint` 4.9s → 2.3s); nothing suggests a systematic change from the client swap.
