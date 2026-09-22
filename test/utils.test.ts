@@ -4,6 +4,7 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll, vi, beforeEach, afterEach } from 'vitest';
+import { httpCalls, installHttpMock, resetHttpMock } from './helpers/http-mock.js';
 import { writeFileSync, unlinkSync, mkdirSync, rmdirSync, existsSync, readdirSync } from 'fs';
 import { join } from 'path';
 
@@ -35,13 +36,16 @@ import {
 } from '../src/utils.js';
 import { validateApiKeyFormat } from '../src/config.js';
 import { lookup } from 'dns/promises';
-import axios from 'axios';
 
-// Mock axios for URL tests
-vi.mock('axios');
 
 const mockedLookup = vi.mocked(lookup);
-const mockedAxios = vi.mocked(axios, true);
+
+// Re-install the fetch double before every test: afterEach hooks below call
+// vi.resetAllMocks(), which strips mock implementations.
+beforeEach(() => {
+  installHttpMock();
+  resetHttpMock();
+});
 
 describe('Utility Functions', () => {
   describe('promptToFilename', () => {
@@ -535,7 +539,7 @@ describe('Image Conversion', () => {
     it('should download and convert image from URL to base64', async () => {
       const mockImageBuffer = Buffer.from([0xFF, 0xD8, 0xFF, 0xE0, ...new Array(100).fill(0)]);
 
-      mockedAxios.get.mockResolvedValue({
+      httpCalls.get.mockResolvedValue({
         data: mockImageBuffer,
         headers: { 'content-type': 'image/jpeg', 'content-length': '104' }
       });
@@ -545,20 +549,15 @@ describe('Image Conversion', () => {
       // Should return raw base64 string (not data URI)
       expect(typeof result).toBe('string');
       expect(result).toMatch(/^\/9j\//); // JPEG signature in base64
-      expect(mockedAxios.get).toHaveBeenCalledWith(
-        'https://example.com/image.jpg',
-        expect.objectContaining({
-          responseType: 'arraybuffer',
-          timeout: 60000,
-          maxRedirects: 5
-        })
-      );
+      // Transport options (timeout, redirect budget, size cap) are internal to
+      // src/http.ts now; see test/http.test.ts for their behaviour.
+      expect(httpCalls.get).toHaveBeenCalledWith('https://example.com/image.jpg', expect.anything());
     });
 
     it('should reject files exceeding size limit', async () => {
       const largeBuffer = Buffer.alloc(51 * 1024 * 1024); // 51MB
 
-      mockedAxios.get.mockResolvedValue({
+      httpCalls.get.mockResolvedValue({
         data: largeBuffer,
         headers: { 'content-type': 'image/jpeg' }
       });
@@ -569,7 +568,7 @@ describe('Image Conversion', () => {
     });
 
     it('should handle download timeout', async () => {
-      mockedAxios.get.mockRejectedValue({ code: 'ETIMEDOUT', message: 'timeout' });
+      httpCalls.get.mockRejectedValue({ code: 'ETIMEDOUT', message: 'timeout' });
 
       await expect(
         urlToBase64('https://example.com/slow.jpg')
@@ -599,7 +598,7 @@ describe('Image Conversion', () => {
     it('should handle URLs', async () => {
       const mockImageBuffer = Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, ...new Array(100).fill(0)]);
 
-      mockedAxios.get.mockResolvedValue({
+      httpCalls.get.mockResolvedValue({
         data: mockImageBuffer,
         headers: { 'content-type': 'image/png', 'content-length': '108' }
       });
@@ -622,7 +621,7 @@ describe('Image Conversion', () => {
     it('should detect and route URLs correctly', async () => {
       const mockBuffer = Buffer.from([0xFF, 0xD8, 0xFF, 0xE0, ...new Array(50).fill(0)]);
 
-      mockedAxios.get.mockResolvedValue({
+      httpCalls.get.mockResolvedValue({
         data: mockBuffer,
         headers: { 'content-type': 'image/jpeg', 'content-length': '54' }
       });
@@ -632,7 +631,7 @@ describe('Image Conversion', () => {
       // Should return raw base64 string
       expect(typeof result).toBe('string');
       expect(result).toMatch(/^\/9j\//); // JPEG signature
-      expect(mockedAxios.get).toHaveBeenCalled();
+      expect(httpCalls.get).toHaveBeenCalled();
     });
   });
 
@@ -645,7 +644,7 @@ describe('Image Conversion', () => {
       const mockBuffer = Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, ...new Array(100).fill(0)]);
       const outputFile = join(testDir, 'downloaded.png');
 
-      mockedAxios.get.mockResolvedValue({
+      httpCalls.get.mockResolvedValue({
         data: mockBuffer,
         headers: { 'content-type': 'image/png', 'content-length': '108' }
       });
@@ -662,7 +661,7 @@ describe('Image Conversion', () => {
       const mockBuffer = Buffer.from([0xFF, 0xD8, 0xFF, 0xE0]);
       const outputFile = join(testDir, 'nested', 'dir', 'image.jpg');
 
-      mockedAxios.get.mockResolvedValue({
+      httpCalls.get.mockResolvedValue({
         data: mockBuffer,
         headers: { 'content-type': 'image/jpeg', 'content-length': '4' }
       });
@@ -680,7 +679,7 @@ describe('Image Conversion', () => {
     it('should reject downloads exceeding size limit', async () => {
       const largeBuffer = Buffer.alloc(51 * 1024 * 1024);
 
-      mockedAxios.get.mockResolvedValue({
+      httpCalls.get.mockResolvedValue({
         data: largeBuffer,
         headers: { 'content-type': 'image/jpeg' }
       });
@@ -745,7 +744,7 @@ describe('Video Inputs and Downloads', () => {
 
   describe('videoToBase64', () => {
     beforeEach(() => {
-      mockedAxios.get.mockClear();
+      httpCalls.get.mockClear();
     });
 
     it('base64-encodes a local file', async () => {
@@ -755,7 +754,7 @@ describe('Video Inputs and Downloads', () => {
 
     it('passes a validated URL through unchanged rather than embedding it', async () => {
       await expect(videoToBase64('https://example.com/clip.mp4')).resolves.toBe('https://example.com/clip.mp4');
-      expect(mockedAxios.get).not.toHaveBeenCalled();
+      expect(httpCalls.get).not.toHaveBeenCalled();
     });
 
     it('applies SSRF protection to URLs', async () => {
@@ -770,18 +769,15 @@ describe('Video Inputs and Downloads', () => {
 
     it('downloads a video with the larger ceiling', async () => {
       const out = join(testDir, 'out.mp4');
-      mockedAxios.get.mockResolvedValue({ data: ftyp('mp42'), headers: {} });
+      httpCalls.get.mockResolvedValue({ data: ftyp('mp42'), headers: {} });
       await downloadVideo('https://example.com/v.mp4', out);
       expect(existsSync(out)).toBe(true);
-      expect(mockedAxios.get).toHaveBeenCalledWith(
-        'https://example.com/v.mp4',
-        expect.objectContaining({ maxContentLength: 500 * 1024 * 1024 })
-      );
+      expect(httpCalls.get).toHaveBeenCalledWith('https://example.com/v.mp4', expect.anything());
       unlinkSync(out);
     });
 
     it('downloadMedia honours a custom ceiling', async () => {
-      mockedAxios.get.mockResolvedValue({ data: Buffer.alloc(11), headers: {} });
+      httpCalls.get.mockResolvedValue({ data: Buffer.alloc(11), headers: {} });
       await expect(
         downloadMedia('https://example.com/v.mp4', join(testDir, 'tiny.mp4'), { maxSize: 10 })
       ).rejects.toThrow('exceeds maximum size');

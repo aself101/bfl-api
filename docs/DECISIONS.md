@@ -169,3 +169,87 @@ verifies every push and PR but publishes nothing.
 subjects, which meant the 1.x changelog reads as a list of commit titles and a
 contract change of this size would have needed a `BREAKING CHANGE:` footer to be
 versioned correctly. A hand-written entry says what changed for a consumer.
+
+## 11. Native fetch, no HTTP client dependency
+
+axios is gone; `src/http.ts` wraps native `fetch`. That drops the only runtime
+dependency with a real subtree (2.4 MB, 8 transitive packages) and leaves
+`commander`, `dotenv` and `winston`.
+
+**The cost is that axios was doing four things implicitly, and each had to be
+rebuilt explicitly** — this module exists because a naive port silently loses
+all four:
+
+1. **Non-2xx throws.** fetch *resolves* on 4xx/5xx. Left unhandled, an error
+   page is a successful response: `downloadMedia` writes it to disk as the
+   media file and `urlToBase64` base64s it and posts it to the API. Silent
+   corruption, no exception anywhere.
+2. **Size caps are enforced while streaming.** fetch has no `maxContentLength`,
+   and `arrayBuffer()` buffers the whole body before you can measure it — so a
+   post-hoc length check is not a cap. The body is read chunk-by-chunk and
+   cancelled the moment it crosses the ceiling. (`for await` locks the stream;
+   the cancel has to go through the reader.)
+3. **Redirects are followed by hand.** fetch offers `follow` (cap 20,
+   unobservable) or `manual`. We follow manually to keep a budget of 5 and to
+   re-validate each hop — see #12.
+4. **Errors are typed, not stringly matched.** undici reports transport
+   failures as `TypeError: fetch failed` with the real code on `.cause.code`,
+   under its own vocabulary (`UND_ERR_SOCKET`, not `ECONNRESET`), and nests it
+   inside an `AggregateError` when several addresses were tried.
+
+Timeouts are **idle** timeouts (the clock resets on each chunk), matching the
+socket-level behaviour Node gave axios. A total deadline would kill large but
+healthy video downloads. The polling GET, which carried no timeout at all
+before, now has one.
+
+**Breaks if:** BFL starts returning a redirect on a generation endpoint with a
+body that matters, or Node changes undici's error codes. The codes live in one
+set (`RETRYABLE_NETWORK_CODES`) for that reason.
+
+## 12. Redirects are re-validated, not followed blind
+
+`validateImageUrl` checks the URL it is given. axios then followed up to five
+redirects without re-checking any of them, so a URL that passed validation
+could `302` to an internal address and the body came back anyway. Demonstrated
+before the migration: a local server redirecting to a loopback "metadata"
+service returned its content through `axios.get(url, { maxRedirects: 5 })` —
+including an https → http downgrade, which the http-only check should have
+refused.
+
+`http.ts` follows redirects manually and calls `validateHop` on each target
+before following it; `utils.ts` passes `validateImageUrl` as that hook. The
+same check that guards the first URL now guards every hop.
+
+Two related fixes landed with it:
+
+- `urlToBase64` validates its own argument. It is an exported function, so it
+  could be called directly, and that path did no SSRF validation at all — only
+  `imageToBase64` validated before delegating. The test that claimed to cover
+  this (`should reject HTTP URLs`) passed for an unrelated reason: with no mock
+  configured, `response.data` was `undefined` and threw.
+- DNS rebinding is still **not** closed. `validateImageUrl` resolves and checks,
+  then the client resolves again independently — a TOCTOU window either way.
+  Closing it needs a pinned-IP dispatcher, which means taking `undici` as an
+  explicit dependency (it is not importable as a core module), which would undo
+  the point of #11. Recorded as a known limitation, not an oversight.
+
+## 13. Retry classification is by type, never by message
+
+The old polling loop decided retriability with `err.message.includes(...)`.
+Three things were wrong with it, and the migration forced all three into view:
+
+- `'ECONNRESET'` and `'ETIMEDOUT'` **never matched anything**. axios puts the
+  code on `.code` and the message reads `socket hang up` / `timeout of 30000ms
+  exceeded`. Network errors were documented as retryable and were not retried.
+- `'502'`/`'503'` matched only because axios's raw `Request failed with status
+  code 503` happened to reach the matcher through a rethrow. Under fetch that
+  text does not exist.
+- `'moderated'` was matched against a message thrown fifteen lines above it in
+  the same function. Rewording either silently broke the no-retry guarantee.
+
+Now: terminal task failures throw `BflTaskError` and are rejected on `instanceof`;
+transient means `BflHttpError` with status 502/503, a `BflNetworkError` whose
+code is in the retryable set, or `BflTimeoutError`. Message text carries no
+control flow. This restores the network-retry behaviour the README always
+claimed, which is a behaviour change from what 1.x actually did.
+

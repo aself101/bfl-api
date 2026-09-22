@@ -9,7 +9,7 @@ import fs from 'fs/promises';
 import { statSync } from 'fs';
 import path from 'path';
 import winston from 'winston';
-import axios from 'axios';
+import { requestBytes } from './http.js';
 import { lookup } from 'dns/promises';
 import { isIPv4, isIPv6 } from 'net';
 import type {
@@ -466,24 +466,25 @@ export async function fileToBase64(filepath: string): Promise<string> {
  */
 export async function urlToBase64(url: string): Promise<string> {
   try {
+    // Validate the URL itself, not just redirect targets. This is an exported
+    // function, so it can be called directly without going through
+    // imageToBase64 — without this, that path skipped SSRF validation entirely.
+    await validateImageUrl(url);
+
     const MAX_SIZE = 50 * 1024 * 1024; // 50MB limit
 
-    const response = await axios.get<ArrayBuffer>(url, {
-      responseType: 'arraybuffer',
-      timeout: 60000, // 60 second timeout for large files
-      maxRedirects: 5, // Limit redirects
-      maxContentLength: MAX_SIZE, // Axios built-in size limit
-      maxBodyLength: MAX_SIZE, // Axios built-in size limit
+    const data = await requestBytes(url, {
+      timeoutMs: 60000, // 60 second idle timeout for large files
+      maxRedirects: 5,
+      // Re-validate every redirect target. Without this a URL that passes the
+      // SSRF check can 302 to an internal address and the body comes back
+      // anyway — which is exactly what happened under axios.
+      validateHop: validateImageUrl,
+      maxBytes: MAX_SIZE, // enforced while streaming, not after buffering
     });
 
-    // Verify actual size (belt-and-suspenders approach)
-    const dataLength = (response.data as ArrayBuffer).byteLength;
-    if (dataLength > MAX_SIZE) {
-      throw new Error(`Image exceeds maximum size of ${MAX_SIZE / (1024 * 1024)}MB`);
-    }
-
-    const base64 = Buffer.from(response.data).toString('base64');
-    logger.debug(`Downloaded and converted ${url} to base64 (${base64.length} chars, ${dataLength} bytes)`);
+    const base64 = data.toString('base64');
+    logger.debug(`Downloaded and converted ${url} to base64 (${base64.length} chars, ${data.byteLength} bytes)`);
     return base64;
   } catch (error) {
     const err = error as Error;
@@ -558,22 +559,15 @@ export async function downloadMedia(
     const dir = path.dirname(filepath);
     await ensureDirectory(dir);
 
-    const response = await axios.get<ArrayBuffer>(url, {
-      responseType: 'arraybuffer',
-      timeout: 120000, // 2 minute timeout for large files
-      maxRedirects: 5, // Limit redirects
-      maxContentLength: maxSize, // Axios built-in size limit
-      maxBodyLength: maxSize, // Axios built-in size limit
+    const data = await requestBytes(url, {
+      timeoutMs: 120000, // 2 minute idle timeout for large files
+      maxRedirects: 5,
+      validateHop: validateImageUrl, // see urlToBase64
+      maxBytes: maxSize, // enforced while streaming, not after buffering
     });
 
-    // Verify actual size
-    const dataLength = (response.data as ArrayBuffer).byteLength;
-    if (dataLength > maxSize) {
-      throw new Error(`Download exceeds maximum size of ${maxSize / (1024 * 1024)}MB`);
-    }
-
-    await fs.writeFile(filepath, Buffer.from(response.data));
-    logger.info(`Downloaded to ${filepath} (${dataLength} bytes)`);
+    await fs.writeFile(filepath, data);
+    logger.info(`Downloaded to ${filepath} (${data.byteLength} bytes)`);
   } catch (error) {
     const err = error as Error;
     logger.error(`Error downloading media: ${err.message}`);

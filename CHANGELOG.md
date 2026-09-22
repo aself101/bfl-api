@@ -13,6 +13,14 @@ Design rationale in `docs/DECISIONS.md`.
 
 ### Added
 
+- **Native `fetch` replaces axios** (`src/http.ts`). No runtime HTTP dependency;
+  `axios` and its 8 transitive packages (2.4 MB) are gone. The module
+  reimplements what axios gave implicitly — throwing on non-2xx, byte ceilings
+  enforced *while streaming*, a bounded and re-validated redirect chain, and
+  typed transport errors. Rationale: `docs/DECISIONS.md` #11.
+- `BflNetworkError` (`.code`, `.retryable`), `BflTimeoutError` (`.timeoutMs`)
+  and `BflTaskError` (`.taskStatus`, `.taskId`) exported alongside
+  `BflHttpError` (which gained `.body`, the parsed error payload).
 - **FLUX.2 [max]**, **[klein] 4B**, **[klein] 9B**: `generateFlux2Max`,
   `generateFlux2Klein4b`, `generateFlux2Klein9b`.
 - **FLUX Tools (image)**: `deblurImage`, `eraseImage` (`dilate_pixels`),
@@ -42,6 +50,19 @@ Design rationale in `docs/DECISIONS.md`.
 
 ### Changed
 
+- **Requires Node 22+** (`engines.node: >=22.0.0`, was `>=18.0.0`); build target
+  ES2023, CI on Node 22. Node 18 is EOL, and 22 gives `fetch`,
+  `AbortSignal.timeout` and `ReadableStream` without an experimental warning
+  (verified on 22.23.2).
+- **Retries are classified by error type, not message text.** Transient means
+  `BflHttpError` 502/503, a retryable `BflNetworkError`, or `BflTimeoutError`;
+  terminal task failures are `BflTaskError` and are never retried. This
+  restores network-error retries, which the README documented but 1.x never
+  performed — `err.message.includes('ECONNRESET')` never matched axios, whose
+  message reads `socket hang up`. See `docs/DECISIONS.md` #13.
+- Timeouts are idle-based (reset on each chunk) rather than total, so a slow but
+  progressing video download is no longer at risk of being cut off. The polling
+  GET, which had no timeout at all, now has one (30 s).
 - **`generateFlux2Pro` no longer sends `prompt_upsampling`.** The API replaced
   it with `disable_pup` (upsampling on by default). `Flux2Params` is now the
   union of `Flux2ProParams` \| `Flux2FlexParams` \| `Flux2KleinParams`.
@@ -74,9 +95,28 @@ Design rationale in `docs/DECISIONS.md`.
 
 ### Removed
 
+- `axios` from `dependencies`. Runtime deps are now `commander`, `dotenv`,
+  `winston`.
 - `Flux2Params.prompt_upsampling` for [pro]/[max] (see Changed).
 - The Kontext `input_image is required` error.
 - semantic-release and its six plugins from `devDependencies`.
+
+### Security
+
+- **Redirects are re-validated.** `validateImageUrl` checked only the URL it was
+  given while axios followed up to five redirects unchecked, so a URL that
+  passed the SSRF check could `302` to an internal address — including an
+  https → http downgrade — and the body was returned. Every hop now goes back
+  through the same check before being followed. Demonstrated against a local
+  redirect-to-loopback server prior to the fix.
+- **`urlToBase64` validates its own argument.** It is exported, so calling it
+  directly bypassed SSRF validation entirely; only `imageToBase64` validated
+  before delegating.
+- **Response size ceilings are enforced mid-stream.** Previously the length was
+  checked after the whole body had been buffered, which is not a limit. A
+  hostile or misbehaving endpoint can no longer force unbounded allocation.
+- Known limitation, unchanged: DNS rebinding is narrowed but not closed —
+  see `docs/DECISIONS.md` #12.
 
 ### Fixed
 

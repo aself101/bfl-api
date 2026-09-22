@@ -19,9 +19,14 @@
  * const result = await api.waitForResult(task.id, { pollingUrl: task.polling_url });
  */
 
-import axios, { type AxiosError } from 'axios';
 import winston from 'winston';
 import { getBflApiKey, BASE_URL, MODELS, MODEL_FIELDS, FLUX3_VIDEO_MODE_FIELDS, MAX_RETRIES } from './config.js';
+import {
+  requestJson,
+  BflHttpError,
+  BflNetworkError,
+  BflTimeoutError,
+} from './http.js';
 import { pause, createSpinner } from './utils.js';
 import type {
   BflApiOptions,
@@ -60,29 +65,31 @@ import type {
 const IN_FLIGHT_STATUSES: ReadonlySet<TaskStatus> = new Set(['Pending', 'Reasoning', 'Generating']);
 
 /**
- * HTTP-level failure from the BFL API. Carries the status and, when the server
- * sent one, its `Retry-After` in seconds — the polling loop honours it.
+ * A task that settled in a failure state: moderated, errored, or not found.
+ *
+ * Distinct from `BflHttpError` (the request itself failed) — the request
+ * succeeded and the *task* failed, so retrying the poll cannot help. The
+ * polling loop classifies on this type rather than on message text: the old
+ * code matched `err.message.includes('moderated')` against a message thrown
+ * a few lines above it, so rewording one silently broke the other.
  */
-export class BflHttpError extends Error {
-  readonly status: number;
-  readonly retryAfter?: number;
+export class BflTaskError extends Error {
+  readonly taskStatus: TaskStatus;
+  readonly taskId: string;
 
-  constructor(message: string, status: number, retryAfter?: number) {
+  constructor(message: string, taskStatus: TaskStatus, taskId: string) {
     super(message);
-    this.name = 'BflHttpError';
-    this.status = status;
-    if (retryAfter !== undefined) this.retryAfter = retryAfter;
+    this.name = 'BflTaskError';
+    this.taskStatus = taskStatus;
+    this.taskId = taskId;
   }
 }
 
-/** Parse a Retry-After header (delta-seconds form) from an axios error, if present. */
-function retryAfterSeconds(error: unknown): number | undefined {
-  const headers = (error as AxiosError | undefined)?.response?.headers as
-    | Record<string, unknown>
-    | undefined;
-  const raw = headers?.['retry-after'];
-  const seconds = Number(raw);
-  return Number.isFinite(seconds) && seconds > 0 ? seconds : undefined;
+/** Does this look like a task result rather than an arbitrary error body? */
+function isTaskResultBody(body: unknown): body is TaskResult {
+  if (!body || typeof body !== 'object') return false;
+  const b = body as Partial<TaskResult>;
+  return typeof b.status === 'string' && typeof b.id === 'string';
 }
 
 /**
@@ -185,11 +192,12 @@ export class BflAPI {
    * Sanitize error messages for production environments.
    * Returns generic messages in production to avoid information disclosure.
    *
-   * @param error - Error object from axios
    * @param status - HTTP status code
+   * @param body - Parsed response body, when the server sent one
+   * @param fallback - Message to use when the body carries no detail
    * @returns Sanitized error message
    */
-  private _sanitizeErrorMessage(error: AxiosError, status: number): string {
+  private _sanitizeErrorMessage(status: number, body: unknown, fallback: string): string {
     // In production, return generic messages to avoid information disclosure
     if (process.env.NODE_ENV === 'production') {
       const genericMessages: GenericErrorMessages = {
@@ -208,8 +216,11 @@ export class BflAPI {
     }
 
     // In development, return detailed error messages
-    const responseData = error.response?.data as { detail?: unknown; error?: string } | undefined;
-    const errorDetail = responseData?.detail || responseData?.error || error.message;
+    const responseData =
+      body && typeof body === 'object'
+        ? (body as { detail?: unknown; error?: string })
+        : undefined;
+    const errorDetail = responseData?.detail || responseData?.error || fallback;
 
     // If errorDetail is an object, stringify it
     if (typeof errorDetail === 'object' && errorDetail !== null) {
@@ -249,54 +260,52 @@ export class BflAPI {
 
     this.logger.debug(`API request: ${method} ${endpoint}`, { headers: sanitizedHeaders });
 
+    const verb = method.toUpperCase();
+    if (verb !== 'GET' && verb !== 'POST') {
+      throw new Error(`Unsupported HTTP method: ${method}`);
+    }
+
     try {
-      let response;
-
-      // Request configuration with timeout and security settings
-      const config = {
+      const result = await requestJson<T>(url, {
+        method: verb,
         headers,
-        timeout: 30000, // 30 second timeout
-        maxRedirects: 5, // Limit redirects to prevent redirect loops
-      };
-
-      if (method.toUpperCase() === 'GET') {
-        response = await axios.get(url, config);
-      } else if (method.toUpperCase() === 'POST') {
-        response = await axios.post(url, data, config);
-      } else {
-        throw new Error(`Unsupported HTTP method: ${method}`);
-      }
+        json: data,
+        timeoutMs: 30000,
+        maxRedirects: 5,
+      });
 
       this.logger.debug(`API request successful: ${method} ${endpoint}`);
-      return response.data as T;
+      return result;
     } catch (error) {
-      const axiosError = error as AxiosError;
-      this.logger.error(`API request failed: ${axiosError.message}`);
+      const err = error as Error;
+      this.logger.error(`API request failed: ${err.message}`);
 
-      // Enhanced error handling with sanitization
-      if (axiosError.response) {
-        const status = axiosError.response.status;
-        const sanitizedMessage = this._sanitizeErrorMessage(axiosError, status);
-        const retryAfter = retryAfterSeconds(axiosError);
+      // Map HTTP failures onto the messages consumers have always seen, keeping
+      // status / retryAfter / body so callers can still inspect them.
+      if (error instanceof BflHttpError) {
+        const { status, retryAfter, body } = error;
+        const sanitized = this._sanitizeErrorMessage(status, body, err.message);
 
         if (status === 401) {
-          throw new BflHttpError('Authentication failed. Please check your API key.', status);
+          throw new BflHttpError('Authentication failed. Please check your API key.', status, retryAfter, body);
         } else if (status === 422) {
-          throw new BflHttpError(`Invalid parameters: ${sanitizedMessage}`, status);
+          throw new BflHttpError(`Invalid parameters: ${sanitized}`, status, retryAfter, body);
         } else if (status === 429) {
           throw new BflHttpError(
             'Rate limit exceeded. Please wait before making more requests.',
             status,
-            retryAfter
+            retryAfter,
+            body
           );
         } else if (status === 502 || status === 503) {
           throw new BflHttpError(
             `Service temporarily unavailable (${status}). Please retry.`,
             status,
-            retryAfter
+            retryAfter,
+            body
           );
         } else {
-          throw new BflHttpError(`HTTP ${status}: ${sanitizedMessage}`, status);
+          throw new BflHttpError(`HTTP ${status}: ${sanitized}`, status, retryAfter, body);
         }
       }
 
@@ -972,15 +981,20 @@ export class BflAPI {
         };
 
         try {
-          const response = await axios.get<TaskResult>(pollingUrl, { headers });
-          result = response.data;
+          result = await requestJson<TaskResult>(pollingUrl, {
+            headers,
+            // The polling GET carried no timeout before the fetch migration —
+            // a hung poll would have blocked until waitForResult's own deadline.
+            timeoutMs: 30000,
+            maxRedirects: 5,
+          });
         } catch (error) {
           // A settled failure can arrive as an HTTP error whose body is still a task
           // result — video endpoints answer 422 with {status: 'Error', details: {error}}.
           // Surface that as the result so the caller sees details.error, not "422".
-          const body = (error as AxiosError).response?.data as Partial<TaskResult> | undefined;
-          if (body && typeof body === 'object' && typeof body.status === 'string' && body.id) {
-            result = body as TaskResult;
+          const body = error instanceof BflHttpError ? error.body : undefined;
+          if (isTaskResultBody(body)) {
+            result = body;
           } else {
             throw error;
           }
@@ -1078,13 +1092,25 @@ export class BflAPI {
             }
             return result;
           } else if (result.status === 'Error') {
-            throw new Error(`Generation failed: ${this._taskErrorMessage(result)}`);
+            throw new BflTaskError(
+              `Generation failed: ${this._taskErrorMessage(result)}`,
+              'Error',
+              taskId
+            );
           } else if (result.status === 'Content Moderated') {
-            throw new Error('Content was moderated. Please revise your prompt.');
+            throw new BflTaskError(
+              'Content was moderated. Please revise your prompt.',
+              'Content Moderated',
+              taskId
+            );
           } else if (result.status === 'Request Moderated') {
-            throw new Error('Request was moderated. Please revise your prompt or inputs.');
+            throw new BflTaskError(
+              'Request was moderated. Please revise your prompt or inputs.',
+              'Request Moderated',
+              taskId
+            );
           } else if (result.status === 'Task not found') {
-            throw new Error(`Task not found: ${taskId}`);
+            throw new BflTaskError(`Task not found: ${taskId}`, 'Task not found', taskId);
           } else if (IN_FLIGHT_STATUSES.has(result.status)) {
             // Continue polling
             if (spinner) {
@@ -1106,29 +1132,27 @@ export class BflAPI {
           retries = 0;
         } catch (error) {
           const err = error as Error;
-          // Check if this is a transient error we should retry
-          const isTransient =
-            err.message.includes('503') ||
-            err.message.includes('502') ||
-            err.message.includes('ECONNRESET') ||
-            err.message.includes('ETIMEDOUT');
 
-          // Don't retry moderation or not-found errors
-          const isFinal =
-            err.message.includes('moderated') ||
-            err.message.includes('Moderated') ||
-            err.message.includes('Task not found');
-
-          if (isFinal) {
+          // A settled task failure is final by construction — retrying the poll
+          // returns the same answer. Classified by type, not by message text.
+          if (error instanceof BflTaskError) {
             throw error;
           }
+
+          // Transient: the service said "later" (502/503), the transport failed
+          // in a recoverable way, or the poll timed out. Under axios the network
+          // arm of this was dead code — it matched 'ECONNRESET' against a message
+          // that read 'socket hang up', so a reset was never retried.
+          const isTransient =
+            (error instanceof BflHttpError && (error.status === 502 || error.status === 503)) ||
+            (error instanceof BflNetworkError && error.retryable) ||
+            error instanceof BflTimeoutError;
 
           if (isTransient && retries < maxRetries) {
             retries++;
             // Honour Retry-After on the polling URL when the server sends one;
             // otherwise exponential backoff: 2s, 4s, 8s.
-            const retryAfter =
-              error instanceof BflHttpError ? error.retryAfter : retryAfterSeconds(error);
+            const retryAfter = error instanceof BflHttpError ? error.retryAfter : undefined;
             const backoff = retryAfter ?? Math.pow(2, retries);
             this.logger.warn(`Transient error (retry ${retries}/${maxRetries}): ${err.message}`);
             if (spinner) {
@@ -1258,6 +1282,8 @@ export class BflAPI {
 }
 
 export default BflAPI;
+
+export { BflHttpError, BflNetworkError, BflTimeoutError } from './http.js';
 
 // Re-export types for consumer convenience
 export type {

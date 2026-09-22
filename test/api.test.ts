@@ -4,15 +4,19 @@
  */
 
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
+import { httpCalls, installHttpMock, resetHttpMock } from './helpers/http-mock.js';
 import { BflAPI } from '../src/api.js';
 import { MODEL_ENDPOINTS, BASE_URL } from '../src/config.js';
-import axios from 'axios';
 import * as config from '../src/config.js';
 
-// Mock axios for all tests
-vi.mock('axios');
 
-const mockedAxios = vi.mocked(axios, true);
+
+// Re-install the fetch double before every test: afterEach hooks below call
+// vi.resetAllMocks(), which strips mock implementations.
+beforeEach(() => {
+  installHttpMock();
+  resetHttpMock();
+});
 
 describe('BflAPI Class', () => {
   let api: BflAPI;
@@ -92,8 +96,7 @@ describe('BflAPI Class', () => {
       const originalEnv = process.env.NODE_ENV;
       process.env.NODE_ENV = 'production';
 
-      const error = { response: { data: { detail: 'Sensitive error details' } }, message: 'Error' };
-      const sanitized = api._sanitizeErrorMessage(error, 422);
+      const sanitized = api._sanitizeErrorMessage(422, { detail: 'Sensitive error details' }, 'Error');
 
       expect(sanitized).toBe('Invalid parameters');
       expect(sanitized).not.toContain('Sensitive');
@@ -105,8 +108,7 @@ describe('BflAPI Class', () => {
       const originalEnv = process.env.NODE_ENV;
       process.env.NODE_ENV = 'development';
 
-      const error = { response: { data: { detail: 'Detailed error info' } }, message: 'Error' };
-      const message = api._sanitizeErrorMessage(error, 422);
+      const message = api._sanitizeErrorMessage(422, { detail: 'Detailed error info' }, 'Error');
 
       expect(message).toContain('Detailed error info');
 
@@ -135,7 +137,7 @@ describe('BflAPI Class', () => {
           status: 'Pending'
         }
       };
-      mockedAxios.post.mockResolvedValue(mockResponse);
+      httpCalls.post.mockResolvedValue(mockResponse);
 
       const result = await api.generateFluxDev({
         prompt: 'a serene mountain landscape',
@@ -146,7 +148,7 @@ describe('BflAPI Class', () => {
       });
 
       // Verify correct endpoint called
-      expect(mockedAxios.post).toHaveBeenCalledWith(
+      expect(httpCalls.post).toHaveBeenCalledWith(
         expect.stringContaining('/v1/flux-dev'),
         expect.objectContaining({
           prompt: 'a serene mountain landscape',
@@ -170,12 +172,12 @@ describe('BflAPI Class', () => {
 
     it('should use default values for optional parameters', async () => {
       const mockResponse = { data: { id: 'task_456', status: 'Pending' } };
-      mockedAxios.post.mockResolvedValue(mockResponse);
+      httpCalls.post.mockResolvedValue(mockResponse);
 
       await api.generateFluxDev({ prompt: 'test prompt' });
 
       // Verify defaults were applied
-      expect(mockedAxios.post).toHaveBeenCalledWith(
+      expect(httpCalls.post).toHaveBeenCalledWith(
         expect.any(String),
         expect.objectContaining({
           prompt: 'test prompt',
@@ -190,7 +192,7 @@ describe('BflAPI Class', () => {
 
     it('should include optional parameters when provided', async () => {
       const mockResponse = { data: { id: 'task_789', status: 'Pending' } };
-      mockedAxios.post.mockResolvedValue(mockResponse);
+      httpCalls.post.mockResolvedValue(mockResponse);
 
       await api.generateFluxDev({
         prompt: 'test',
@@ -200,7 +202,7 @@ describe('BflAPI Class', () => {
         prompt_upsampling: true
       });
 
-      expect(mockedAxios.post).toHaveBeenCalledWith(
+      expect(httpCalls.post).toHaveBeenCalledWith(
         expect.any(String),
         expect.objectContaining({
           seed: 42,
@@ -213,7 +215,7 @@ describe('BflAPI Class', () => {
     });
 
     it('should handle API errors correctly', async () => {
-      mockedAxios.post.mockRejectedValue({
+      httpCalls.post.mockRejectedValue({
         response: { status: 422, data: { detail: 'Invalid parameters' } },
         message: 'Request failed'
       });
@@ -229,7 +231,7 @@ describe('BflAPI Class', () => {
       const mockResponse = {
         data: { id: 'task_pro_123', status: 'Pending' }
       };
-      mockedAxios.post.mockResolvedValue(mockResponse);
+      httpCalls.post.mockResolvedValue(mockResponse);
 
       const result = await api.generateFluxPro({
         prompt: 'modern office interior',
@@ -239,7 +241,7 @@ describe('BflAPI Class', () => {
       });
 
       // Verify correct endpoint
-      expect(mockedAxios.post).toHaveBeenCalledWith(
+      expect(httpCalls.post).toHaveBeenCalledWith(
         expect.stringContaining('/v1/flux-pro'),
         expect.objectContaining({
           prompt: 'modern office interior',
@@ -259,7 +261,7 @@ describe('BflAPI Class', () => {
 
     it('should handle image_prompt parameter correctly', async () => {
       const mockResponse = { data: { id: 'task_123', status: 'Pending' } };
-      mockedAxios.post.mockResolvedValue(mockResponse);
+      httpCalls.post.mockResolvedValue(mockResponse);
 
       const imagePrompt = 'data:image/jpeg;base64,/9j/4AAQ...';
       await api.generateFluxPro({
@@ -267,7 +269,7 @@ describe('BflAPI Class', () => {
         image_prompt: imagePrompt
       });
 
-      expect(mockedAxios.post).toHaveBeenCalledWith(
+      expect(httpCalls.post).toHaveBeenCalledWith(
         expect.any(String),
         expect.objectContaining({
           image_prompt: imagePrompt
@@ -282,7 +284,7 @@ describe('BflAPI Class', () => {
       const mockResponse = {
         data: { id: 'task_ultra_123', status: 'Pending' }
       };
-      mockedAxios.post.mockResolvedValue(mockResponse);
+      httpCalls.post.mockResolvedValue(mockResponse);
 
       const result = await api.generateFluxProUltra({
         prompt: 'cinematic landscape photography',
@@ -291,7 +293,7 @@ describe('BflAPI Class', () => {
       });
 
       // Verify correct endpoint and parameters
-      expect(mockedAxios.post).toHaveBeenCalledWith(
+      expect(httpCalls.post).toHaveBeenCalledWith(
         expect.stringContaining('/v1/flux-pro-1.1-ultra'),
         expect.objectContaining({
           prompt: 'cinematic landscape photography',
@@ -310,11 +312,11 @@ describe('BflAPI Class', () => {
 
     it('should use default aspect_ratio and raw values', async () => {
       const mockResponse = { data: { id: 'task_123', status: 'Pending' } };
-      mockedAxios.post.mockResolvedValue(mockResponse);
+      httpCalls.post.mockResolvedValue(mockResponse);
 
       await api.generateFluxProUltra({ prompt: 'test' });
 
-      expect(mockedAxios.post).toHaveBeenCalledWith(
+      expect(httpCalls.post).toHaveBeenCalledWith(
         expect.any(String),
         expect.objectContaining({
           aspect_ratio: '16:9',
@@ -326,7 +328,7 @@ describe('BflAPI Class', () => {
 
     it('should include image_prompt and image_prompt_strength when provided', async () => {
       const mockResponse = { data: { id: 'task_123', status: 'Pending' } };
-      mockedAxios.post.mockResolvedValue(mockResponse);
+      httpCalls.post.mockResolvedValue(mockResponse);
 
       await api.generateFluxProUltra({
         prompt: 'test',
@@ -334,7 +336,7 @@ describe('BflAPI Class', () => {
         image_prompt_strength: 0.5
       });
 
-      expect(mockedAxios.post).toHaveBeenCalledWith(
+      expect(httpCalls.post).toHaveBeenCalledWith(
         expect.any(String),
         expect.objectContaining({
           image_prompt: 'data:image/png;base64,abc',
@@ -350,7 +352,7 @@ describe('BflAPI Class', () => {
       const mockResponse = {
         data: { id: 'task_kontext_pro_123', status: 'Pending' }
       };
-      mockedAxios.post.mockResolvedValue(mockResponse);
+      httpCalls.post.mockResolvedValue(mockResponse);
 
       const result = await api.generateKontextPro({
         prompt: 'A small furry elephant pet',
@@ -358,7 +360,7 @@ describe('BflAPI Class', () => {
       });
 
       // Verify correct endpoint
-      expect(mockedAxios.post).toHaveBeenCalledWith(
+      expect(httpCalls.post).toHaveBeenCalledWith(
         expect.stringContaining('/v1/flux-kontext-pro'),
         expect.objectContaining({
           prompt: 'A small furry elephant pet',
@@ -375,17 +377,17 @@ describe('BflAPI Class', () => {
     });
 
     it('should generate from text alone when input_image is omitted', async () => {
-      mockedAxios.post.mockResolvedValue({ data: { id: 'task_123', polling_url: '' } });
+      httpCalls.post.mockResolvedValue({ data: { id: 'task_123', polling_url: '' } });
 
       await api.generateKontextPro({ prompt: 'a lighthouse in a storm', aspect_ratio: '16:9' });
 
-      const payload = mockedAxios.post.mock.calls[0][1] as Record<string, unknown>;
+      const payload = httpCalls.post.mock.calls[0][1] as Record<string, unknown>;
       expect(payload).toEqual({ prompt: 'a lighthouse in a storm', aspect_ratio: '16:9' });
       expect(payload).not.toHaveProperty('input_image');
     });
 
     it('should pass aspect_ratio and prompt_upsampling through', async () => {
-      mockedAxios.post.mockResolvedValue({ data: { id: 'task_123', polling_url: '' } });
+      httpCalls.post.mockResolvedValue({ data: { id: 'task_123', polling_url: '' } });
 
       await api.generateKontextPro({
         prompt: 'test',
@@ -394,7 +396,7 @@ describe('BflAPI Class', () => {
         prompt_upsampling: true,
       });
 
-      expect(mockedAxios.post).toHaveBeenCalledWith(
+      expect(httpCalls.post).toHaveBeenCalledWith(
         expect.any(String),
         expect.objectContaining({ aspect_ratio: '1:1', prompt_upsampling: true }),
         expect.any(Object)
@@ -403,7 +405,7 @@ describe('BflAPI Class', () => {
 
     it('should handle multiple reference images', async () => {
       const mockResponse = { data: { id: 'task_123', status: 'Pending' } };
-      mockedAxios.post.mockResolvedValue(mockResponse);
+      httpCalls.post.mockResolvedValue(mockResponse);
 
       await api.generateKontextPro({
         prompt: 'test',
@@ -413,7 +415,7 @@ describe('BflAPI Class', () => {
         input_image_4: 'data:image/png;base64,img4'
       });
 
-      expect(mockedAxios.post).toHaveBeenCalledWith(
+      expect(httpCalls.post).toHaveBeenCalledWith(
         expect.any(String),
         expect.objectContaining({
           input_image: 'data:image/png;base64,img1',
@@ -431,7 +433,7 @@ describe('BflAPI Class', () => {
       const mockResponse = {
         data: { id: 'task_kontext_max_123', status: 'Pending' }
       };
-      mockedAxios.post.mockResolvedValue(mockResponse);
+      httpCalls.post.mockResolvedValue(mockResponse);
 
       const result = await api.generateKontextMax({
         prompt: 'Transform into watercolor painting',
@@ -439,7 +441,7 @@ describe('BflAPI Class', () => {
       });
 
       // Verify correct endpoint
-      expect(mockedAxios.post).toHaveBeenCalledWith(
+      expect(httpCalls.post).toHaveBeenCalledWith(
         expect.stringContaining('/v1/flux-kontext-max'),
         expect.objectContaining({
           prompt: 'Transform into watercolor painting',
@@ -456,11 +458,11 @@ describe('BflAPI Class', () => {
     });
 
     it('should generate from text alone when input_image is omitted', async () => {
-      mockedAxios.post.mockResolvedValue({ data: { id: 'task_123', polling_url: '' } });
+      httpCalls.post.mockResolvedValue({ data: { id: 'task_123', polling_url: '' } });
 
       await api.generateKontextMax({ prompt: 'test' });
 
-      const payload = mockedAxios.post.mock.calls[0][1] as Record<string, unknown>;
+      const payload = httpCalls.post.mock.calls[0][1] as Record<string, unknown>;
       expect(payload).not.toHaveProperty('input_image');
     });
   });
@@ -486,7 +488,7 @@ describe('BflAPI Class', () => {
       const mockResponse = {
         data: { id: 'task_fill_123', status: 'Pending' }
       };
-      mockedAxios.post.mockResolvedValue(mockResponse);
+      httpCalls.post.mockResolvedValue(mockResponse);
 
       const result = await api.generateFluxProFill({
         image: 'data:image/png;base64,abc123',
@@ -495,7 +497,7 @@ describe('BflAPI Class', () => {
         guidance: 3
       });
 
-      expect(mockedAxios.post).toHaveBeenCalledWith(
+      expect(httpCalls.post).toHaveBeenCalledWith(
         expect.stringContaining('/v1/flux-pro-1.0-fill'),
         expect.objectContaining({
           image: 'data:image/png;base64,abc123',
@@ -515,7 +517,7 @@ describe('BflAPI Class', () => {
 
     it('should handle mask parameter correctly', async () => {
       const mockResponse = { data: { id: 'task_123', status: 'Pending' } };
-      mockedAxios.post.mockResolvedValue(mockResponse);
+      httpCalls.post.mockResolvedValue(mockResponse);
 
       await api.generateFluxProFill({
         image: 'data:image/png;base64,img',
@@ -523,7 +525,7 @@ describe('BflAPI Class', () => {
         prompt: 'Fill this area with grass'
       });
 
-      expect(mockedAxios.post).toHaveBeenCalledWith(
+      expect(httpCalls.post).toHaveBeenCalledWith(
         expect.any(String),
         expect.objectContaining({
           image: 'data:image/png;base64,img',
@@ -536,7 +538,7 @@ describe('BflAPI Class', () => {
 
     it('should include all optional parameters when provided', async () => {
       const mockResponse = { data: { id: 'task_123', status: 'Pending' } };
-      mockedAxios.post.mockResolvedValue(mockResponse);
+      httpCalls.post.mockResolvedValue(mockResponse);
 
       await api.generateFluxProFill({
         image: 'data:image/png;base64,img',
@@ -550,7 +552,7 @@ describe('BflAPI Class', () => {
         prompt_upsampling: true
       });
 
-      expect(mockedAxios.post).toHaveBeenCalledWith(
+      expect(httpCalls.post).toHaveBeenCalledWith(
         expect.any(String),
         expect.objectContaining({
           steps: 25,
@@ -581,7 +583,7 @@ describe('BflAPI Class', () => {
         }).rejects.toThrow('API key not set');
 
         // Verify axios.post was never called - fail fast before API call
-        expect(mockedAxios.post).not.toHaveBeenCalled();
+        expect(httpCalls.post).not.toHaveBeenCalled();
       } finally {
         // Restore original function
         vi.mocked(config.getBflApiKey).mockRestore();
@@ -597,7 +599,7 @@ describe('BflAPI Class', () => {
       }).rejects.toThrow('finetune_id is required for FLUX.1 Fill [pro] finetune');
 
       // Verify axios.post was never called - fail fast before API call
-      expect(mockedAxios.post).not.toHaveBeenCalled();
+      expect(httpCalls.post).not.toHaveBeenCalled();
     });
 
     it('should throw error if image is missing', async () => {
@@ -609,14 +611,14 @@ describe('BflAPI Class', () => {
       }).rejects.toThrow('image is required for FLUX.1 Fill [pro] finetune');
 
       // Verify axios.post was never called - fail fast before API call
-      expect(mockedAxios.post).not.toHaveBeenCalled();
+      expect(httpCalls.post).not.toHaveBeenCalled();
     });
 
     it('should generate image with finetune model', async () => {
       const mockResponse = {
         data: { id: 'task_finetune_123', status: 'Pending' }
       };
-      mockedAxios.post.mockResolvedValue(mockResponse);
+      httpCalls.post.mockResolvedValue(mockResponse);
 
       const result = await api.generateFluxProFillFinetuned({
         finetune_id: 'my-custom-model',
@@ -627,7 +629,7 @@ describe('BflAPI Class', () => {
         guidance: 60
       });
 
-      expect(mockedAxios.post).toHaveBeenCalledWith(
+      expect(httpCalls.post).toHaveBeenCalledWith(
         expect.stringContaining('/v1/flux-pro-1.0-fill-finetuned'),
         expect.objectContaining({
           finetune_id: 'my-custom-model',
@@ -649,14 +651,14 @@ describe('BflAPI Class', () => {
 
     it('should handle empty prompt (default to empty string)', async () => {
       const mockResponse = { data: { id: 'task_123', status: 'Pending' } };
-      mockedAxios.post.mockResolvedValue(mockResponse);
+      httpCalls.post.mockResolvedValue(mockResponse);
 
       await api.generateFluxProFillFinetuned({
         finetune_id: 'my-model',
         image: 'data:image/png;base64,img'
       });
 
-      expect(mockedAxios.post).toHaveBeenCalledWith(
+      expect(httpCalls.post).toHaveBeenCalledWith(
         expect.any(String),
         expect.objectContaining({
           finetune_id: 'my-model',
@@ -669,7 +671,7 @@ describe('BflAPI Class', () => {
 
     it('should handle mask parameter correctly', async () => {
       const mockResponse = { data: { id: 'task_123', status: 'Pending' } };
-      mockedAxios.post.mockResolvedValue(mockResponse);
+      httpCalls.post.mockResolvedValue(mockResponse);
 
       await api.generateFluxProFillFinetuned({
         finetune_id: 'my-model',
@@ -678,7 +680,7 @@ describe('BflAPI Class', () => {
         prompt: 'Fill with custom style'
       });
 
-      expect(mockedAxios.post).toHaveBeenCalledWith(
+      expect(httpCalls.post).toHaveBeenCalledWith(
         expect.any(String),
         expect.objectContaining({
           finetune_id: 'my-model',
@@ -692,7 +694,7 @@ describe('BflAPI Class', () => {
 
     it('should include all optional parameters when provided', async () => {
       const mockResponse = { data: { id: 'task_123', status: 'Pending' } };
-      mockedAxios.post.mockResolvedValue(mockResponse);
+      httpCalls.post.mockResolvedValue(mockResponse);
 
       await api.generateFluxProFillFinetuned({
         finetune_id: 'my-model',
@@ -708,7 +710,7 @@ describe('BflAPI Class', () => {
         prompt_upsampling: true
       });
 
-      expect(mockedAxios.post).toHaveBeenCalledWith(
+      expect(httpCalls.post).toHaveBeenCalledWith(
         expect.any(String),
         expect.objectContaining({
           finetune_id: 'my-model',
@@ -728,7 +730,7 @@ describe('BflAPI Class', () => {
       const mockResponse = {
         data: { id: 'task_123', status: 'Pending' }
       };
-      mockedAxios.post.mockResolvedValue(mockResponse);
+      httpCalls.post.mockResolvedValue(mockResponse);
 
       await api.generateFluxProFillFinetuned({
         finetune_id: 'my-model',
@@ -736,12 +738,12 @@ describe('BflAPI Class', () => {
       });
 
       // Verify exact endpoint is used, not flux-pro-fill or other variants
-      const callArgs = mockedAxios.post.mock.calls[0];
+      const callArgs = httpCalls.post.mock.calls[0];
       expect(callArgs[0]).toBe('https://api.bfl.ai/v1/flux-pro-1.0-fill-finetuned');
     });
 
     it('should handle API authentication errors (401)', async () => {
-      mockedAxios.post.mockRejectedValue({
+      httpCalls.post.mockRejectedValue({
         response: { status: 401 },
         message: 'Unauthorized'
       });
@@ -755,7 +757,7 @@ describe('BflAPI Class', () => {
     });
 
     it('should handle invalid parameter errors (422)', async () => {
-      mockedAxios.post.mockRejectedValue({
+      httpCalls.post.mockRejectedValue({
         response: {
           status: 422,
           data: { detail: 'Invalid finetune_id' }
@@ -772,7 +774,7 @@ describe('BflAPI Class', () => {
     });
 
     it('should handle rate limiting errors (429)', async () => {
-      mockedAxios.post.mockRejectedValue({
+      httpCalls.post.mockRejectedValue({
         response: { status: 429 },
         message: 'Too Many Requests'
       });
@@ -786,7 +788,7 @@ describe('BflAPI Class', () => {
     });
 
     it('should handle server errors (502/503)', async () => {
-      mockedAxios.post.mockRejectedValue({
+      httpCalls.post.mockRejectedValue({
         response: { status: 503 },
         message: 'Service Unavailable'
       });
@@ -814,7 +816,7 @@ describe('BflAPI Class', () => {
       const mockResponse = {
         data: { id: 'task_expand_123', status: 'Pending' }
       };
-      mockedAxios.post.mockResolvedValue(mockResponse);
+      httpCalls.post.mockResolvedValue(mockResponse);
 
       const result = await api.generateFluxProExpand({
         image: 'data:image/png;base64,abc123',
@@ -825,7 +827,7 @@ describe('BflAPI Class', () => {
         guidance: 60
       });
 
-      expect(mockedAxios.post).toHaveBeenCalledWith(
+      expect(httpCalls.post).toHaveBeenCalledWith(
         expect.stringContaining('/v1/flux-pro-1.0-expand'),
         expect.objectContaining({
           image: 'data:image/png;base64,abc123',
@@ -847,7 +849,7 @@ describe('BflAPI Class', () => {
 
     it('should handle all expansion parameters', async () => {
       const mockResponse = { data: { id: 'task_123', status: 'Pending' } };
-      mockedAxios.post.mockResolvedValue(mockResponse);
+      httpCalls.post.mockResolvedValue(mockResponse);
 
       await api.generateFluxProExpand({
         image: 'data:image/png;base64,img',
@@ -857,7 +859,7 @@ describe('BflAPI Class', () => {
         right: 256
       });
 
-      expect(mockedAxios.post).toHaveBeenCalledWith(
+      expect(httpCalls.post).toHaveBeenCalledWith(
         expect.any(String),
         expect.objectContaining({
           top: 1024,
@@ -871,7 +873,7 @@ describe('BflAPI Class', () => {
 
     it('should include all optional parameters when provided', async () => {
       const mockResponse = { data: { id: 'task_123', status: 'Pending' } };
-      mockedAxios.post.mockResolvedValue(mockResponse);
+      httpCalls.post.mockResolvedValue(mockResponse);
 
       await api.generateFluxProExpand({
         image: 'data:image/png;base64,img',
@@ -885,7 +887,7 @@ describe('BflAPI Class', () => {
         prompt_upsampling: true
       });
 
-      expect(mockedAxios.post).toHaveBeenCalledWith(
+      expect(httpCalls.post).toHaveBeenCalledWith(
         expect.any(String),
         expect.objectContaining({
           steps: 40,
@@ -911,7 +913,7 @@ describe('BflAPI Class', () => {
           output_mp: 1.05
         }
       };
-      mockedAxios.post.mockResolvedValue(mockResponse);
+      httpCalls.post.mockResolvedValue(mockResponse);
 
       const result = await api.generateFlux2Pro({
         prompt: 'a majestic castle on a cliff',
@@ -919,7 +921,7 @@ describe('BflAPI Class', () => {
         height: 1024
       });
 
-      expect(mockedAxios.post).toHaveBeenCalledWith(
+      expect(httpCalls.post).toHaveBeenCalledWith(
         expect.stringContaining('/v1/flux-2-pro'),
         expect.objectContaining({
           prompt: 'a majestic castle on a cliff',
@@ -941,11 +943,11 @@ describe('BflAPI Class', () => {
 
     it('should not send prompt_upsampling (the field no longer exists on Flux2Inputs)', async () => {
       const mockResponse = { data: { id: 'task_123', polling_url: '' } };
-      mockedAxios.post.mockResolvedValue(mockResponse);
+      httpCalls.post.mockResolvedValue(mockResponse);
 
       await api.generateFlux2Pro({ prompt: 'test prompt' });
 
-      const payload = mockedAxios.post.mock.calls[0][1] as Record<string, unknown>;
+      const payload = httpCalls.post.mock.calls[0][1] as Record<string, unknown>;
       expect(payload).toEqual({ prompt: 'test prompt' });
       expect(payload).not.toHaveProperty('prompt_upsampling');
       expect(payload).not.toHaveProperty('disable_pup');
@@ -953,14 +955,14 @@ describe('BflAPI Class', () => {
 
     it('should send disable_pup when set', async () => {
       const mockResponse = { data: { id: 'task_123', polling_url: '' } };
-      mockedAxios.post.mockResolvedValue(mockResponse);
+      httpCalls.post.mockResolvedValue(mockResponse);
 
       await api.generateFlux2Pro({
         prompt: 'test prompt',
         disable_pup: true
       });
 
-      expect(mockedAxios.post).toHaveBeenCalledWith(
+      expect(httpCalls.post).toHaveBeenCalledWith(
         expect.any(String),
         expect.objectContaining({
           disable_pup: true
@@ -971,7 +973,7 @@ describe('BflAPI Class', () => {
 
     it('should handle multi-image input (up to 8 images)', async () => {
       const mockResponse = { data: { id: 'task_123', polling_url: '' } };
-      mockedAxios.post.mockResolvedValue(mockResponse);
+      httpCalls.post.mockResolvedValue(mockResponse);
 
       await api.generateFlux2Pro({
         prompt: 'combine elements from all images',
@@ -985,7 +987,7 @@ describe('BflAPI Class', () => {
         input_image_8: 'data:image/png;base64,img8'
       });
 
-      expect(mockedAxios.post).toHaveBeenCalledWith(
+      expect(httpCalls.post).toHaveBeenCalledWith(
         expect.any(String),
         expect.objectContaining({
           input_image: 'data:image/png;base64,img1',
@@ -1003,7 +1005,7 @@ describe('BflAPI Class', () => {
 
     it('should include optional parameters when provided', async () => {
       const mockResponse = { data: { id: 'task_123', polling_url: '' } };
-      mockedAxios.post.mockResolvedValue(mockResponse);
+      httpCalls.post.mockResolvedValue(mockResponse);
 
       await api.generateFlux2Pro({
         prompt: 'test',
@@ -1012,7 +1014,7 @@ describe('BflAPI Class', () => {
         output_format: 'png'
       });
 
-      expect(mockedAxios.post).toHaveBeenCalledWith(
+      expect(httpCalls.post).toHaveBeenCalledWith(
         expect.any(String),
         expect.objectContaining({
           seed: 42,
@@ -1024,7 +1026,7 @@ describe('BflAPI Class', () => {
     });
 
     it('should handle API errors correctly', async () => {
-      mockedAxios.post.mockRejectedValue({
+      httpCalls.post.mockRejectedValue({
         response: { status: 422, data: { detail: 'Invalid parameters' } },
         message: 'Request failed'
       });
@@ -1036,7 +1038,7 @@ describe('BflAPI Class', () => {
 
     it('should work with zero input images (text-to-image mode)', async () => {
       const mockResponse = { data: { id: 'task_123', polling_url: '' } };
-      mockedAxios.post.mockResolvedValue(mockResponse);
+      httpCalls.post.mockResolvedValue(mockResponse);
 
       await api.generateFlux2Pro({
         prompt: 'a beautiful landscape',
@@ -1044,7 +1046,7 @@ describe('BflAPI Class', () => {
         height: 768
       });
 
-      const payload = mockedAxios.post.mock.calls[0][1] as Record<string, unknown>;
+      const payload = httpCalls.post.mock.calls[0][1] as Record<string, unknown>;
 
       // Should not have any input_image keys
       expect(payload.input_image).toBeUndefined();
@@ -1053,7 +1055,7 @@ describe('BflAPI Class', () => {
 
     it('should work with partial image count (3 images)', async () => {
       const mockResponse = { data: { id: 'task_123', polling_url: '' } };
-      mockedAxios.post.mockResolvedValue(mockResponse);
+      httpCalls.post.mockResolvedValue(mockResponse);
 
       await api.generateFlux2Pro({
         prompt: 'combine these elements',
@@ -1062,7 +1064,7 @@ describe('BflAPI Class', () => {
         input_image_3: 'data:image/png;base64,img3'
       });
 
-      const payload = mockedAxios.post.mock.calls[0][1] as Record<string, unknown>;
+      const payload = httpCalls.post.mock.calls[0][1] as Record<string, unknown>;
 
       // Should have exactly 3 input images
       expect(payload.input_image).toBe('data:image/png;base64,img1');
@@ -1073,7 +1075,7 @@ describe('BflAPI Class', () => {
 
     it('should include all parameters when provided', async () => {
       const mockResponse = { data: { id: 'task_123', polling_url: '' } };
-      mockedAxios.post.mockResolvedValue(mockResponse);
+      httpCalls.post.mockResolvedValue(mockResponse);
 
       await api.generateFlux2Pro({
         prompt: 'test with all params',
@@ -1089,7 +1091,7 @@ describe('BflAPI Class', () => {
         webhook_secret: 's3cret'
       });
 
-      expect(mockedAxios.post).toHaveBeenCalledWith(
+      expect(httpCalls.post).toHaveBeenCalledWith(
         expect.any(String),
         expect.objectContaining({
           prompt: 'test with all params',
@@ -1120,7 +1122,7 @@ describe('BflAPI Class', () => {
           output_mp: 0.79
         }
       };
-      mockedAxios.post.mockResolvedValue(mockResponse);
+      httpCalls.post.mockResolvedValue(mockResponse);
 
       const result = await api.generateFlux2Flex({
         prompt: 'a serene Japanese garden',
@@ -1128,7 +1130,7 @@ describe('BflAPI Class', () => {
         height: 768
       });
 
-      expect(mockedAxios.post).toHaveBeenCalledWith(
+      expect(httpCalls.post).toHaveBeenCalledWith(
         expect.stringContaining('/v1/flux-2-flex'),
         expect.objectContaining({
           prompt: 'a serene Japanese garden',
@@ -1148,21 +1150,21 @@ describe('BflAPI Class', () => {
 
     it('should leave prompt_upsampling to the server default (true) when unset', async () => {
       const mockResponse = { data: { id: 'task_123', polling_url: '' } };
-      mockedAxios.post.mockResolvedValue(mockResponse);
+      httpCalls.post.mockResolvedValue(mockResponse);
 
       await api.generateFlux2Flex({ prompt: 'test prompt' });
 
-      const payload = mockedAxios.post.mock.calls[0][1] as Record<string, unknown>;
+      const payload = httpCalls.post.mock.calls[0][1] as Record<string, unknown>;
       expect(payload).toEqual({ prompt: 'test prompt' });
     });
 
     it('should pass guidance, steps and prompt_upsampling through', async () => {
       const mockResponse = { data: { id: 'task_123', polling_url: '' } };
-      mockedAxios.post.mockResolvedValue(mockResponse);
+      httpCalls.post.mockResolvedValue(mockResponse);
 
       await api.generateFlux2Flex({ prompt: 'test', guidance: 4, steps: 30, prompt_upsampling: false });
 
-      expect(mockedAxios.post).toHaveBeenCalledWith(
+      expect(httpCalls.post).toHaveBeenCalledWith(
         expect.any(String),
         expect.objectContaining({ guidance: 4, steps: 30, prompt_upsampling: false }),
         expect.any(Object)
@@ -1171,7 +1173,7 @@ describe('BflAPI Class', () => {
 
     it('should handle multi-reference editing with multiple images', async () => {
       const mockResponse = { data: { id: 'task_123', polling_url: '' } };
-      mockedAxios.post.mockResolvedValue(mockResponse);
+      httpCalls.post.mockResolvedValue(mockResponse);
 
       await api.generateFlux2Flex({
         prompt: 'combine the style and subject',
@@ -1179,7 +1181,7 @@ describe('BflAPI Class', () => {
         input_image_2: 'data:image/png;base64,style_ref'
       });
 
-      expect(mockedAxios.post).toHaveBeenCalledWith(
+      expect(httpCalls.post).toHaveBeenCalledWith(
         expect.any(String),
         expect.objectContaining({
           input_image: 'data:image/png;base64,subject',
@@ -1191,7 +1193,7 @@ describe('BflAPI Class', () => {
 
     it('should support experimental multiref (images 5-8)', async () => {
       const mockResponse = { data: { id: 'task_123', polling_url: '' } };
-      mockedAxios.post.mockResolvedValue(mockResponse);
+      httpCalls.post.mockResolvedValue(mockResponse);
 
       await api.generateFlux2Flex({
         prompt: 'create from multiple references',
@@ -1199,7 +1201,7 @@ describe('BflAPI Class', () => {
         input_image_6: 'data:image/png;base64,experimental2'
       });
 
-      expect(mockedAxios.post).toHaveBeenCalledWith(
+      expect(httpCalls.post).toHaveBeenCalledWith(
         expect.any(String),
         expect.objectContaining({
           input_image_5: 'data:image/png;base64,experimental1',
@@ -1211,7 +1213,7 @@ describe('BflAPI Class', () => {
 
     it('should not require input_image (text-to-image mode)', async () => {
       const mockResponse = { data: { id: 'task_123', polling_url: '' } };
-      mockedAxios.post.mockResolvedValue(mockResponse);
+      httpCalls.post.mockResolvedValue(mockResponse);
 
       // Should not throw - input_image is optional for text-to-image
       await api.generateFlux2Flex({
@@ -1220,11 +1222,11 @@ describe('BflAPI Class', () => {
         height: 768
       });
 
-      expect(mockedAxios.post).toHaveBeenCalled();
+      expect(httpCalls.post).toHaveBeenCalled();
     });
 
     it('should handle API errors correctly', async () => {
-      mockedAxios.post.mockRejectedValue({
+      httpCalls.post.mockRejectedValue({
         response: { status: 401, data: { detail: 'Invalid API key' } },
         message: 'Unauthorized'
       });
@@ -1240,7 +1242,7 @@ describe('BflAPI Class', () => {
       let pollCount = 0;
 
       // Mock GET requests - first 2 return Pending, 3rd returns Ready
-      mockedAxios.get.mockImplementation(() => {
+      httpCalls.get.mockImplementation(() => {
         pollCount++;
         if (pollCount < 3) {
           return Promise.resolve({
@@ -1273,7 +1275,7 @@ describe('BflAPI Class', () => {
 
     it('should timeout after max duration', async () => {
       // Mock always returns Pending
-      mockedAxios.get.mockResolvedValue({
+      httpCalls.get.mockResolvedValue({
         data: {
           id: 'task_123',
           status: 'Pending'
@@ -1290,7 +1292,7 @@ describe('BflAPI Class', () => {
     });
 
     it('should throw error on Error status', async () => {
-      mockedAxios.get.mockResolvedValue({
+      httpCalls.get.mockResolvedValue({
         data: {
           id: 'task_123',
           status: 'Error',
@@ -1306,7 +1308,7 @@ describe('BflAPI Class', () => {
     });
 
     it('should throw error on Content Moderated status', async () => {
-      mockedAxios.get.mockResolvedValue({
+      httpCalls.get.mockResolvedValue({
         data: {
           id: 'task_123',
           status: 'Content Moderated'
@@ -1321,13 +1323,15 @@ describe('BflAPI Class', () => {
     it('should retry on transient errors with exponential backoff', async () => {
       let callCount = 0;
 
-      mockedAxios.get.mockImplementation(() => {
+      httpCalls.get.mockImplementation(() => {
         callCount++;
+        // Real upstream statuses — fetch resolves these, http.ts turns them
+        // into BflHttpError, and the retry decision is made on .status.
         if (callCount === 1) {
-          return Promise.reject(new Error('503 Service Unavailable'));
+          return Promise.resolve({ data: { detail: 'unavailable' }, status: 503 });
         }
         if (callCount === 2) {
-          return Promise.reject(new Error('502 Bad Gateway'));
+          return Promise.resolve({ data: { detail: 'bad gateway' }, status: 502 });
         }
         // Third call succeeds
         return Promise.resolve({
@@ -1352,9 +1356,11 @@ describe('BflAPI Class', () => {
     it('should not retry on moderation errors', async () => {
       let callCount = 0;
 
-      mockedAxios.get.mockImplementation(() => {
+      httpCalls.get.mockImplementation(() => {
         callCount++;
-        return Promise.reject(new Error('Content was moderated'));
+        // A moderated task is a 200 whose body says so — the failure is the
+        // task's, not the request's, so it must not be retried.
+        return Promise.resolve({ data: { id: 'task_123', status: 'Content Moderated' } });
       });
 
       await expect(
@@ -1369,7 +1375,7 @@ describe('BflAPI Class', () => {
     });
 
     it('should fail after max retries on transient errors', async () => {
-      mockedAxios.get.mockRejectedValue(new Error('503 Service Unavailable'));
+      httpCalls.get.mockResolvedValue({ data: { detail: 'unavailable' }, status: 503 });
 
       await expect(
         api.waitForResult('task_123', {
@@ -1377,27 +1383,27 @@ describe('BflAPI Class', () => {
           maxRetries: 2,
           showSpinner: false
         })
-      ).rejects.toThrow('503 Service Unavailable');
+      ).rejects.toThrow('Service temporarily unavailable (503)');
 
       // Should try initial + 2 retries = 3 times
-      expect(mockedAxios.get).toHaveBeenCalledTimes(3);
+      expect(httpCalls.get).toHaveBeenCalledTimes(3);
     });
 
     it('should treat Request Moderated as terminal and not retry', async () => {
-      mockedAxios.get.mockResolvedValue({
+      httpCalls.get.mockResolvedValue({
         data: { id: 'task_123', status: 'Request Moderated' }
       });
 
       await expect(
         api.waitForResult('task_123', { pollInterval: 0.01, showSpinner: false })
       ).rejects.toThrow('Request was moderated');
-      expect(mockedAxios.get).toHaveBeenCalledTimes(1);
+      expect(httpCalls.get).toHaveBeenCalledTimes(1);
     });
 
     it('should keep polling through Reasoning and Generating', async () => {
       const statuses = ['Pending', 'Reasoning', 'Generating', 'Generating', 'Ready'];
       let pollCount = 0;
-      mockedAxios.get.mockImplementation(() => {
+      httpCalls.get.mockImplementation(() => {
         const status = statuses[pollCount++];
         return Promise.resolve({
           data:
@@ -1414,16 +1420,16 @@ describe('BflAPI Class', () => {
     });
 
     it('should throw immediately on Task not found', async () => {
-      mockedAxios.get.mockResolvedValue({ data: { id: 'nope', status: 'Task not found' } });
+      httpCalls.get.mockResolvedValue({ data: { id: 'nope', status: 'Task not found' } });
 
       await expect(
         api.waitForResult('nope', { pollInterval: 0.01, showSpinner: false })
       ).rejects.toThrow('Task not found: nope');
-      expect(mockedAxios.get).toHaveBeenCalledTimes(1);
+      expect(httpCalls.get).toHaveBeenCalledTimes(1);
     });
 
     it('should prefer details.error over result.error on Error status', async () => {
-      mockedAxios.get.mockResolvedValue({
+      httpCalls.get.mockResolvedValue({
         data: {
           id: 'task_123',
           status: 'Error',
@@ -1439,7 +1445,7 @@ describe('BflAPI Class', () => {
 
     it('should honour Retry-After on a transient polling error', async () => {
       let pollCount = 0;
-      mockedAxios.get.mockImplementation(() => {
+      httpCalls.get.mockImplementation(() => {
         pollCount++;
         if (pollCount === 1) {
           const err = new Error('Request failed with status code 503') as Error & {
@@ -1474,11 +1480,11 @@ describe('BflAPI Class', () => {
           }
         }
       };
-      mockedAxios.get.mockResolvedValue(mockResponse);
+      httpCalls.get.mockResolvedValue(mockResponse);
 
       const result = await api.getResult('task_123');
 
-      expect(mockedAxios.get).toHaveBeenCalledWith(
+      expect(httpCalls.get).toHaveBeenCalledWith(
         expect.stringContaining('/v1/get_result?id=task_123'),
         expect.objectContaining({
           headers: expect.objectContaining({
@@ -1495,11 +1501,11 @@ describe('BflAPI Class', () => {
       const mockResponse = {
         data: { id: 'task_123', status: 'Pending' }
       };
-      mockedAxios.get.mockResolvedValue(mockResponse);
+      httpCalls.get.mockResolvedValue(mockResponse);
 
       await api.getResult('task_123', 'https://custom.api.url/result');
 
-      expect(mockedAxios.get).toHaveBeenCalledWith(
+      expect(httpCalls.get).toHaveBeenCalledWith(
         'https://custom.api.url/result',
         expect.any(Object)
       );
@@ -1510,7 +1516,7 @@ describe('BflAPI Class', () => {
     it('explains a 404 on the global host as a regional-task problem', async () => {
       const err = new Error('Request failed with status code 404') as Error & { response: { status: number; data: unknown; headers: Record<string, string> } };
       err.response = { status: 404, data: {}, headers: {} };
-      mockedAxios.get.mockRejectedValue(err);
+      httpCalls.get.mockRejectedValue(err);
 
       await expect(api.getResult('abc123')).rejects.toThrow(
         'Task abc123 not found at https://api.bfl.ai. Tasks are served from the regional host'
@@ -1518,9 +1524,9 @@ describe('BflAPI Class', () => {
     });
 
     it('uses the polling URL verbatim when given', async () => {
-      mockedAxios.get.mockResolvedValue({ data: { id: 'abc123', status: 'Ready', result: { sample: 'u' } } });
+      httpCalls.get.mockResolvedValue({ data: { id: 'abc123', status: 'Ready', result: { sample: 'u' } } });
       await api.getResult('abc123', 'https://api.eu2.bfl.ai/v1/get_result?id=abc123');
-      expect(mockedAxios.get).toHaveBeenCalledWith(
+      expect(httpCalls.get).toHaveBeenCalledWith(
         'https://api.eu2.bfl.ai/v1/get_result?id=abc123',
         expect.objectContaining({ headers: expect.objectContaining({ 'x-key': 'test_api_key_for_unit_tests' }) })
       );
@@ -1535,7 +1541,7 @@ describe('BflAPI Class', () => {
         data: { id: 't1', status: 'Error', result: null, details: { error: 'Invalid or corrupted image input' } },
         headers: {},
       };
-      mockedAxios.get.mockRejectedValue(err);
+      httpCalls.get.mockRejectedValue(err);
 
       const result = await api.getResult('t1', 'https://api.isr.bfl.ai/v1/get_result?id=t1');
       expect(result.status).toBe('Error');
@@ -1549,7 +1555,7 @@ describe('BflAPI Class', () => {
     it('still throws when the error body is not a task result', async () => {
       const err = new Error('Request failed with status code 500') as Error & { response: { status: number; data: unknown; headers: Record<string, string> } };
       err.response = { status: 500, data: { detail: 'boom' }, headers: {} };
-      mockedAxios.get.mockRejectedValue(err);
+      httpCalls.get.mockRejectedValue(err);
       await expect(api.getResult('t1', 'https://api.isr.bfl.ai/v1/get_result?id=t1')).rejects.toThrow('500');
     });
   });
@@ -1561,11 +1567,11 @@ describe('BflAPI Class', () => {
           credits: 150.5
         }
       };
-      mockedAxios.get.mockResolvedValue(mockResponse);
+      httpCalls.get.mockResolvedValue(mockResponse);
 
       const credits = await api.getUserCredits();
 
-      expect(mockedAxios.get).toHaveBeenCalledWith(
+      expect(httpCalls.get).toHaveBeenCalledWith(
         expect.stringContaining('/v1/credits'),
         expect.objectContaining({
           headers: expect.objectContaining({
@@ -1579,7 +1585,7 @@ describe('BflAPI Class', () => {
     });
 
     it('should handle API errors when fetching credits', async () => {
-      mockedAxios.get.mockRejectedValue({
+      httpCalls.get.mockRejectedValue({
         response: { status: 401 },
         message: 'Unauthorized'
       });
@@ -1597,11 +1603,11 @@ describe('BflAPI Class', () => {
           finetunes: ['finetune-1', 'finetune-2', 'custom-model-abc']
         }
       };
-      mockedAxios.get.mockResolvedValue(mockResponse);
+      httpCalls.get.mockResolvedValue(mockResponse);
 
       const result = await api.getMyFinetunes();
 
-      expect(mockedAxios.get).toHaveBeenCalledWith(
+      expect(httpCalls.get).toHaveBeenCalledWith(
         expect.stringContaining('/v1/my_finetunes'),
         expect.objectContaining({
           headers: expect.objectContaining({
@@ -1620,7 +1626,7 @@ describe('BflAPI Class', () => {
           finetunes: []
         }
       };
-      mockedAxios.get.mockResolvedValue(mockResponse);
+      httpCalls.get.mockResolvedValue(mockResponse);
 
       const result = await api.getMyFinetunes();
 
@@ -1629,7 +1635,7 @@ describe('BflAPI Class', () => {
     });
 
     it('should throw error on API failure', async () => {
-      mockedAxios.get.mockRejectedValue({
+      httpCalls.get.mockRejectedValue({
         response: { status: 401 },
         message: 'Unauthorized'
       });
@@ -1640,7 +1646,7 @@ describe('BflAPI Class', () => {
     });
 
     it('should throw error on network failure', async () => {
-      mockedAxios.get.mockRejectedValue({
+      httpCalls.get.mockRejectedValue({
         message: 'Network Error'
       });
 
@@ -1652,7 +1658,7 @@ describe('BflAPI Class', () => {
 
   describe('Error Handling - Additional Status Codes', () => {
     it('should handle bad request errors (400)', async () => {
-      mockedAxios.post.mockRejectedValue({
+      httpCalls.post.mockRejectedValue({
         response: {
           status: 400,
           data: { detail: 'Bad request - malformed parameters' }
@@ -1666,7 +1672,7 @@ describe('BflAPI Class', () => {
     });
 
     it('should handle forbidden errors (403)', async () => {
-      mockedAxios.post.mockRejectedValue({
+      httpCalls.post.mockRejectedValue({
         response: {
           status: 403,
           data: { detail: 'Access forbidden - insufficient permissions' }
@@ -1680,7 +1686,7 @@ describe('BflAPI Class', () => {
     });
 
     it('should handle not found errors (404)', async () => {
-      mockedAxios.post.mockRejectedValue({
+      httpCalls.post.mockRejectedValue({
         response: {
           status: 404,
           data: { detail: 'Endpoint not found' }
@@ -1694,7 +1700,7 @@ describe('BflAPI Class', () => {
     });
 
     it('should handle internal server errors (500)', async () => {
-      mockedAxios.post.mockRejectedValue({
+      httpCalls.post.mockRejectedValue({
         response: {
           status: 500,
           data: { detail: 'Internal server error' }
@@ -1708,7 +1714,7 @@ describe('BflAPI Class', () => {
     });
 
     it('should handle network errors without response', async () => {
-      mockedAxios.post.mockRejectedValue({
+      httpCalls.post.mockRejectedValue({
         message: 'Network Error - ECONNREFUSED',
         code: 'ECONNREFUSED'
       });
@@ -1719,7 +1725,7 @@ describe('BflAPI Class', () => {
     });
 
     it('should handle timeout errors', async () => {
-      mockedAxios.post.mockRejectedValue({
+      httpCalls.post.mockRejectedValue({
         message: 'timeout of 30000ms exceeded',
         code: 'ETIMEDOUT'
       });
@@ -1730,7 +1736,7 @@ describe('BflAPI Class', () => {
     });
 
     it('should handle DNS resolution errors', async () => {
-      mockedAxios.post.mockRejectedValue({
+      httpCalls.post.mockRejectedValue({
         message: 'getaddrinfo ENOTFOUND api.bfl.ai',
         code: 'ENOTFOUND'
       });
@@ -1741,7 +1747,7 @@ describe('BflAPI Class', () => {
     });
 
     it('should handle connection reset errors', async () => {
-      mockedAxios.post.mockRejectedValue({
+      httpCalls.post.mockRejectedValue({
         message: 'socket hang up',
         code: 'ECONNRESET'
       });
@@ -1755,7 +1761,7 @@ describe('BflAPI Class', () => {
       const originalEnv = process.env.NODE_ENV;
       process.env.NODE_ENV = 'production';
 
-      mockedAxios.post.mockRejectedValue({
+      httpCalls.post.mockRejectedValue({
         response: {
           status: 400,
           data: { detail: 'Sensitive internal error details' }
@@ -1777,7 +1783,7 @@ describe('BflAPI Class', () => {
       const originalEnv = process.env.NODE_ENV;
       process.env.NODE_ENV = 'production';
 
-      mockedAxios.post.mockRejectedValue({
+      httpCalls.post.mockRejectedValue({
         response: {
           status: 403,
           data: { detail: 'Detailed permission info' }
@@ -1799,7 +1805,7 @@ describe('BflAPI Class', () => {
       const originalEnv = process.env.NODE_ENV;
       process.env.NODE_ENV = 'production';
 
-      mockedAxios.post.mockRejectedValue({
+      httpCalls.post.mockRejectedValue({
         response: {
           status: 500,
           data: { detail: 'Internal stack trace and sensitive data' }

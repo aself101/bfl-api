@@ -7,23 +7,28 @@
  */
 
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
+import { httpCalls, installHttpMock, resetHttpMock } from './helpers/http-mock.js';
 import { BflAPI } from '../src/api.js';
-import axios from 'axios';
 
-vi.mock('axios');
-const mockedAxios = vi.mocked(axios, true);
 
 /** The JSON body of the most recent POST. */
 function lastPayload(): Record<string, unknown> {
-  const calls = mockedAxios.post.mock.calls;
+  const calls = httpCalls.post.mock.calls;
   return calls[calls.length - 1][1] as Record<string, unknown>;
 }
 
 /** The URL of the most recent POST. */
 function lastUrl(): string {
-  const calls = mockedAxios.post.mock.calls;
+  const calls = httpCalls.post.mock.calls;
   return calls[calls.length - 1][0] as string;
 }
+
+// Re-install the fetch double before every test: afterEach hooks below call
+// vi.resetAllMocks(), which strips mock implementations.
+beforeEach(() => {
+  installHttpMock();
+  resetHttpMock();
+});
 
 describe('BflAPI 2.0 endpoints', () => {
   let api: BflAPI;
@@ -34,8 +39,8 @@ describe('BflAPI 2.0 endpoints', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mockedAxios.post.mockResolvedValue({ data: { id: 'task_123', polling_url: 'https://api.bfl.ai/v1/get_result?id=task_123' } });
-    mockedAxios.get.mockResolvedValue({ data: {} });
+    httpCalls.post.mockResolvedValue({ data: { id: 'task_123', polling_url: 'https://api.bfl.ai/v1/get_result?id=task_123' } });
+    httpCalls.get.mockResolvedValue({ data: {} });
   });
 
   afterEach(() => {
@@ -65,7 +70,7 @@ describe('BflAPI 2.0 endpoints', () => {
       await expect(
         api.generateFluxProUltraFinetuned({ prompt: 'x' } as never)
       ).rejects.toThrow('finetune_id is required');
-      expect(mockedAxios.post).not.toHaveBeenCalled();
+      expect(httpCalls.post).not.toHaveBeenCalled();
     });
   });
 
@@ -290,7 +295,7 @@ describe('BflAPI 2.0 endpoints', () => {
       await expect(api.generateFlux3Video({ mode: 'text-to-video', prompt: 'p' } as never)).rejects.toThrow(
         'Unknown FLUX 3 Video mode: text-to-video'
       );
-      expect(mockedAxios.post).not.toHaveBeenCalled();
+      expect(httpCalls.post).not.toHaveBeenCalled();
     });
 
     it('requires a prompt for generating modes', async () => {
@@ -366,7 +371,7 @@ describe('BflAPI 2.0 endpoints', () => {
         await call();
         expect(lastPayload()).toMatchObject(common);
       }
-      expect(mockedAxios.post).toHaveBeenCalledTimes(calls.length);
+      expect(httpCalls.post).toHaveBeenCalledTimes(calls.length);
     });
 
     it('never sends undefined-valued keys', async () => {
@@ -379,9 +384,9 @@ describe('BflAPI 2.0 endpoints', () => {
 
   describe('getFinetuneDetails', () => {
     it('GETs finetune_details with the id URL-encoded', async () => {
-      mockedAxios.get.mockResolvedValue({ data: { finetune_details: { mode: 'general' } } });
+      httpCalls.get.mockResolvedValue({ data: { finetune_details: { mode: 'general' } } });
       const result = await api.getFinetuneDetails('my ft/1');
-      expect(mockedAxios.get).toHaveBeenCalledWith(
+      expect(httpCalls.get).toHaveBeenCalledWith(
         expect.stringContaining('/v1/finetune_details?finetune_id=my%20ft%2F1'),
         expect.any(Object)
       );
@@ -395,7 +400,7 @@ describe('BflAPI 2.0 endpoints', () => {
 
   describe('deleteFinetune', () => {
     it('POSTs delete_finetune with the id in the body', async () => {
-      mockedAxios.post.mockResolvedValue({
+      httpCalls.post.mockResolvedValue({
         data: { status: 'success', message: 'deleted', deleted_finetune_id: 'ft-1', timestamp: 't' },
       });
       const result = await api.deleteFinetune('ft-1');
@@ -406,7 +411,7 @@ describe('BflAPI 2.0 endpoints', () => {
 
     it('requires an id', async () => {
       await expect(api.deleteFinetune('')).rejects.toThrow('finetuneId is required');
-      expect(mockedAxios.post).not.toHaveBeenCalled();
+      expect(httpCalls.post).not.toHaveBeenCalled();
     });
   });
 });

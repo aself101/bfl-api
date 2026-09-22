@@ -166,7 +166,7 @@ npm install bfl-api         # library, or npx bfl
 ```
 
 From source: `git clone https://github.com/aself101/bfl-api && cd bfl-api && npm install && npm run build`.
-Requires Node 18+.
+Requires Node 22+ (native `fetch`, `AbortSignal.timeout`).
 
 ## CLI
 
@@ -269,7 +269,7 @@ import type {
   // config
   BflApiOptions, ModelEndpointKey, ModelInfo, MediaKind, ModelConstraint,
 } from 'bfl-api';
-import { BflHttpError } from 'bfl-api';
+import { BflHttpError, BflNetworkError, BflTimeoutError, BflTaskError } from 'bfl-api';
 import { MODELS, MODEL_ENDPOINTS, MODEL_FIELDS, MODEL_CONSTRAINTS, validateModelParams, getModelInfo } from 'bfl-api/config';
 ```
 
@@ -307,10 +307,15 @@ through the first three (showing `progress` when the API reports it) and throws 
 failures: `Error` (message from `details.error`), `Request Moderated`, `Content Moderated`, and
 `Task not found` (immediately — it will never change).
 
-Transient failures (502, 503, `ECONNRESET`, `ETIMEDOUT`) retry with 2 s / 4 s / 8 s backoff, or
-for exactly the server's `Retry-After` when it sends one. HTTP errors from the API are thrown as
-`BflHttpError` with `.status` and `.retryAfter`; in `NODE_ENV=production` messages are
-sanitised to generic text.
+Retries are decided by error *type*, never by message text: a `BflHttpError` with status 502/503,
+a `BflNetworkError` whose `.code` is retryable (reset, refused, DNS, undici's `UND_ERR_*`), or a
+`BflTimeoutError`. Backoff is 2 s / 4 s / 8 s, or exactly the server's `Retry-After` when it sends
+one. A settled task failure throws `BflTaskError` and is never retried — retrying a poll returns
+the same answer. In `NODE_ENV=production` messages are sanitised to generic text.
+
+```typescript
+import { BflHttpError, BflNetworkError, BflTimeoutError, BflTaskError } from 'bfl-api';
+```
 
 Result URLs are signed and expire after about an hour — download promptly.
 
@@ -327,8 +332,15 @@ Result URLs are signed and expire after about an hour — download promptly.
   blocked, including IPv4-mapped IPv6, with DNS-rebinding prevention.
 - **File validation** by magic bytes (PNG/JPEG/WebP/GIF for images, ISO BMFF `ftyp` for video) —
   the extension is not trusted.
-- **Size limits:** 50 MB video upload (the API's ceiling), 50 MB image download, 500 MB video
-  download; 30 s API timeout, 5-redirect cap; HTTPS enforced for `baseUrl`.
+- **Size limits enforced while streaming**, not after buffering: 50 MB video upload (the API's
+  ceiling), 50 MB image download, 500 MB video download. A body that crosses the ceiling is
+  cancelled mid-flight rather than measured once it is already in memory.
+- **Redirects are bounded (5) and re-validated.** Every hop is put back through the SSRF check
+  before it is followed, so a validated URL cannot `302` to an internal address or downgrade to
+  http. Timeouts are idle-based (30 s API, 60 s image, 120 s video), so a slow-but-progressing
+  download is not killed; HTTPS is enforced for `baseUrl`.
+- **Known limitation:** DNS rebinding is narrowed, not closed — the hostname is resolved and
+  checked, then resolved again by the HTTP client. See `docs/DECISIONS.md` #12.
 - **Destructive CLI actions** (`--delete-finetune`) require `--yes`.
 
 ## Spec drift check
