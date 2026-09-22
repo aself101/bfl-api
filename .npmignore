@@ -1,5 +1,6 @@
-# Note: package.json "files" field takes precedence
-# This file is a fallback - only dist/, README.md, LICENSE are published
+# Note: package.json "files" field takes precedence and is the real allow-list.
+# It publishes dist/, README.md, LICENSE and CHANGELOG.md. This file is a
+# belt-and-braces fallback for anything that field would otherwise let through.
 
 # Source TypeScript files (compiled to dist/)
 src/
@@ -13,7 +14,6 @@ coverage/
 
 # Config files
 tsconfig.json
-.releaserc.json
 
 # Development files
 .env
@@ -40,11 +40,13 @@ Thumbs.db
 # Git files
 .git/
 .gitignore
+.gitattributes
 .github/
 
-# Documentation (README.md and LICENSE are in package.json files)
+# Documentation (README.md, LICENSE and CHANGELOG.md ship via package.json files)
 docs/
 CLAUDE.md
+scripts/
 
 # Dependencies (never published)
 node_modules/
