@@ -303,6 +303,25 @@ export function recordSafeValue(v: unknown): unknown {
   return v;
 }
 
+/** Parameters whose values are secrets whatever their shape (round-5 review). */
+const SECRET_PARAM_KEYS: ReadonlySet<string> = new Set(['webhook_secret']);
+
+/** Free text recorded in full: eliding a long prompt as "base64" hides the record's point. */
+const TEXT_PARAM_KEYS: ReadonlySet<string> = new Set(['prompt']);
+
+/**
+ * A named parameter as recorded in the dry-run line and metadata `parameters`.
+ * Shape alone cannot tell a secret from a setting — a short opaque
+ * `webhook_secret` passed every URL and length test and was written in full —
+ * so known secret keys are redacted by name, the prompt is kept whole, and
+ * everything else goes through `recordSafeValue`.
+ */
+export function recordSafeEntry(key: string, value: unknown): unknown {
+  if (SECRET_PARAM_KEYS.has(key)) return value === undefined || value === null ? value : '[redacted]';
+  if (TEXT_PARAM_KEYS.has(key) && typeof value === 'string') return value;
+  return recordSafeValue(value);
+}
+
 /** A resolver with `dns.lookup`'s `{ all: true }` shape; injectable for tests. */
 export type AllAddressResolver = (
   hostname: string,

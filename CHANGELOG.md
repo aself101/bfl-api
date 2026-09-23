@@ -73,7 +73,10 @@ _Nothing yet._
   in the query string. They now show origin and path, with the query replaced by
   `?[redacted]`, and an unparseable URL is not echoed at all. The CLI's `--dry-run` line and
   the metadata file's `parameters` record *input* URLs the same way (they echoed them in full);
-  the metadata keeps the signed *result* URL on purpose, for re-download. Found by the
+  the metadata keeps the signed *result* URL on purpose, for re-download. `webhook_secret` is
+  recorded as `[redacted]` in both (it was written in full: redaction went by shape, and a short
+  secret is neither a URL nor base64), and a long `prompt` is now recorded whole rather than
+  elided as `<base64 …>`. Found by the
   pre-release security review and its re-reviews.
 
 The SSRF check fixes (every DNS answer, IPv6 ranges, embedded and tunnel IPv4 forms) and the

@@ -38,7 +38,7 @@ import {
   ensureDirectory,
   setLogLevel,
   logger,
-  recordSafeValue,
+  recordSafeEntry,
 } from './utils.js';
 import { getOutputDir, MODELS, validateModelParams } from './config.js';
 import type {
@@ -728,7 +728,7 @@ async function submit(
  */
 function summarizeParams(params: GenerationParams): string {
   return JSON.stringify(
-    Object.fromEntries(Object.entries(params).map(([k, v]) => [k, recordSafeValue(v)])),
+    Object.fromEntries(Object.entries(params).map(([k, v]) => [k, recordSafeEntry(k, v)])),
     null,
     2
   );

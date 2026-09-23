@@ -4,7 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node.js Version](https://img.shields.io/node/v/bfl-api)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-blue.svg)](https://www.typescriptlang.org/)
-[![Tests](https://img.shields.io/badge/tests-458%20passing-brightgreen)](test/)
+[![Tests](https://img.shields.io/badge/tests-461%20passing-brightgreen)](test/)
 [![Coverage](https://img.shields.io/badge/coverage-91.5%25-brightgreen)](test/)
 
 A TypeScript/Node.js wrapper for the [Black Forest Labs API](https://docs.bfl.ml/) covering every
@@ -396,7 +396,8 @@ Result URLs are signed and expire after about an hour — download promptly.
   redirect that changes origin drops credential headers (`x-key`, `authorization`, cookies).
 - **The metadata file keeps the signed *result* URL on purpose** (`media_url`, `draft_cache_url`), so
   you can re-download your own output for the hour it stays valid; treat that file like the image.
-  *Input* URLs you pass are recorded — there and in the `--dry-run` line — with their query redacted.
+  *Input* URLs you pass are recorded — there and in the `--dry-run` line — with their query redacted,
+  and `webhook_secret` is recorded as `[redacted]`.
 - **Signed URLs stay out of logs and errors:** download log lines and error messages show origin
   and path only, with the query string replaced by `?[redacted]`.
 - **File validation** by magic bytes (PNG/JPEG/WebP/GIF for images, ISO BMFF `ftyp` for video) —
@@ -451,7 +452,7 @@ a `fields` map for 2.0-era parameters.
 
 ```bash
 npm run build                 # tsc → dist/
-npm test                      # 458 tests (vitest)
+npm test                      # 461 tests (vitest)
 npm run test:coverage         # 91.7% lines
 npm run verify                # build + spec control + live spec check + tests — what CI runs
 npm run bfl -- --examples     # run the CLI from source

@@ -33,6 +33,7 @@ import {
   downloadMedia,
   createGuardedLookup,
   recordSafeValue,
+  recordSafeEntry,
   type AllAddressResolver,
   MAX_VIDEO_UPLOAD_BYTES,
   pause,
@@ -1053,11 +1054,27 @@ describe('recordSafeValue (dry-run log and metadata parameters)', () => {
     expect(recordSafeValue(42)).toBe(42);
     expect(recordSafeValue('a prompt')).toBe('a prompt');
   });
+  // Shape decides nothing for these two (round-5 review): a short opaque
+  // secret passes every URL/length test, and a long prompt is not base64.
+  it('redacts a webhook_secret whatever its shape', () => {
+    expect(recordSafeEntry('webhook_secret', 'my-shared-hmac-secret-abc123')).toBe('[redacted]');
+    expect(recordSafeEntry('webhook_secret', undefined)).toBeUndefined();
+  });
+  it('records a long prompt in full rather than eliding it as base64', () => {
+    const prompt = 'a very detailed prompt '.repeat(20);
+    expect(prompt.length).toBeGreaterThan(120);
+    expect(recordSafeEntry('prompt', prompt)).toBe(prompt);
+  });
+  it('treats every other key by shape', () => {
+    expect(recordSafeEntry('webhook_url', 'https://hooks.example/in?token=T')).toBe('https://hooks.example/in?[redacted]');
+    expect(recordSafeEntry('input_image', 'B'.repeat(300))).toBe('<base64 300 chars>');
+  });
+
   it('cli.ts summarizeParams uses it (the function is not importable: cli.ts runs main)', async () => {
     const { readFileSync } = await import('node:fs');
     const source = readFileSync(new URL('../src/cli.ts', import.meta.url), 'utf8');
     const body = source.slice(source.indexOf('function summarizeParams'), source.indexOf('function summarizeParams') + 600);
-    expect(body).toContain('recordSafeValue');
+    expect(body).toContain('recordSafeEntry(k, v)');
     expect(body).not.toMatch(/!\/\^https\?/);
   });
 });

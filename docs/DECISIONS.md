@@ -384,3 +384,11 @@ Of the tests that existed, one pinned the old behaviour (`getResult` against
   the call. The stability-ai-api round-4 review found the same leak there and made the
   distinction explicit. `summarizeParams` now goes through `recordSafeValue`, which redacts
   every URL's query; the result URLs are written separately and untouched.
+
+The round-5 review then found `webhook_secret` written in full to both places:
+`recordSafeValue` decides by shape (a URL, or a string long enough to be base64), and a
+short opaque secret is neither. Records now go through `recordSafeEntry(key, value)`:
+keys known to hold secrets are redacted by name, `prompt` is kept whole (the length rule
+had been eliding long prompts as base64), and every other key falls through to the shape
+rule. **Breaks if** a new secret-bearing parameter is added without being named in
+`SECRET_PARAM_KEYS` — shape will not catch it, which is the lesson of this round.
