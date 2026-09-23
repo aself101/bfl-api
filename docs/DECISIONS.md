@@ -365,3 +365,19 @@ fails with a message naming the refused URL (redacted). The fix is to add that d
 
 Of the tests that existed, one pinned the old behaviour (`getResult` against
 `https://custom.api.url/result`); it now uses a regional BFL host, with a comment.
+
+**Round-4 review, two boundaries recorded rather than changed:**
+
+- **`baseUrl` is trusted.** `_makeRequest` sends the key to `baseUrl` and the polling
+  allowlist accepts its exact host; the only check on it is `https://`. That is the point
+  of the option (a proxy or gateway in front of BFL), and the CLI has no flag for it, so
+  it reaches the key only through a library caller's own configuration. A caller that
+  sets it from untrusted input reopens this decision's bug on their side; the README says
+  so. Not fixed in code because any allowlist on `baseUrl` would break the use it exists for.
+- **The metadata file keeps the full signed result URL.** `_metadata.json` records
+  `media_url` / `draft_cache_url` unredacted, and the dry-run and metadata `parameters`
+  echo a caller's own URL inputs in full (`summarizeParams` elides base64, not URLs). The
+  redaction of #14/#16 covers log lines and error messages — text that gets pasted into bug
+  reports and shipped to log aggregators. The metadata file is local output the user asked
+  for, and re-downloading within the URL's hour is what it is for; redacting it would remove
+  that. The README tells users to treat the file like the image itself.

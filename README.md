@@ -390,8 +390,14 @@ Result URLs are signed and expire after about an hour — download promptly.
   deprecated site-local `fec0::/10` is blocked. **Every** DNS answer is checked, not the first.
 - **The API key only goes to BFL.** Polling URLs must be `https` on `bfl.ai` (any regional
   subdomain) or the configured `baseUrl` host; anything else is refused before a request.
+  `baseUrl` is trusted with the key by design (proxies, gateways), so set it from your own
+  configuration — never from request input or other untrusted data.
 - **The API key never follows a redirect.** Authenticated calls follow no redirects, and any
   redirect that changes origin drops credential headers (`x-key`, `authorization`, cookies).
+- **Signed URLs stay out of logs and errors — but not out of the metadata file.** The CLI writes the
+  full signed result URL (`media_url`, `draft_cache_url`) to each `_metadata.json` on purpose, so you
+  can re-download your own output for the hour it stays valid. Treat that file like the image: don't
+  publish it.
 - **Signed URLs stay out of logs and errors:** download log lines and error messages show origin
   and path only, with the query string replaced by `?[redacted]`.
 - **File validation** by magic bytes (PNG/JPEG/WebP/GIF for images, ISO BMFF `ftyp` for video) —
@@ -447,7 +453,7 @@ a `fields` map for 2.0-era parameters.
 ```bash
 npm run build                 # tsc → dist/
 npm test                      # 454 tests (vitest)
-npm run test:coverage         # 90.8% lines
+npm run test:coverage         # 91.7% lines
 npm run verify                # build + spec control + live spec check + tests — what CI runs
 npm run bfl -- --examples     # run the CLI from source
 ```
