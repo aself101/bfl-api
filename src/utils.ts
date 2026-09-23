@@ -93,7 +93,9 @@ function expandIPv6(ip: string): number[] | null {
  * (::ffff:0:0/96), IPv4-translated (::ffff:0:0:0/96), NAT64 (64:ff9b::/96),
  * the deprecated IPv4-compatible form (::/96, excluding :: and ::1), and the
  * two tunnel forms — 6to4 (2002::/16, IPv4 in hextets 1-2) and Teredo
- * (2001::/32, the client IPv4 bit-inverted in the last 32 bits). The tunnel
+ * (2001::/32, the client IPv4 bit-inverted in the last 32 bits) — and
+ * ISATAP (interface identifier 0:5efe or 200:5efe under any prefix, IPv4 in
+ * the last 32 bits; added with the re-review). The tunnel
  * forms were added in 2.0.2 after the security-analyst review; a relay
  * delivers them to the embedded IPv4, so they are judged by it.
  *
@@ -112,6 +114,7 @@ function embeddedIPv4(ip: string): string | null {
   const quad = (hi: number, lo: number) => [hi >> 8, hi & 0xff, lo >> 8, lo & 0xff].join('.');
   if (h[0] === 0x2002) return quad(h[1], h[2]); // 6to4
   if (h[0] === 0x2001 && h[1] === 0) return quad(h[6] ^ 0xffff, h[7] ^ 0xffff); // Teredo client
+  if ((h[4] === 0 || h[4] === 0x200) && h[5] === 0x5efe) return quad(h[6], h[7]); // ISATAP, any prefix
   if (!(isMapped || isTranslated || isNat64 || isCompatible)) return null;
   return [h[6] >> 8, h[6] & 0xff, h[7] >> 8, h[7] & 0xff].join('.');
 }
@@ -219,7 +222,7 @@ export async function validateImageUrl(url: string): Promise<string> {
   try {
     parsed = new URL(url);
   } catch (error) {
-    throw new Error(`Invalid URL: ${url}`, { cause: error });
+    throw new Error(`Invalid URL: ${redactUrl(url)}`, { cause: error });
   }
 
   // Only allow HTTPS (not HTTP)

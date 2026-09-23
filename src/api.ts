@@ -271,7 +271,9 @@ export class BflAPI {
         headers,
         json: data,
         timeoutMs: 30000,
-        maxRedirects: 5,
+        // Authenticated calls follow no redirects: a redirect would carry the key
+        // to its target (docs/DECISIONS.md #16, as stability-ai-api's #9).
+        maxRedirects: 0,
       });
 
       this.logger.debug(`API request successful: ${method} ${endpoint}`);
@@ -999,7 +1001,9 @@ export class BflAPI {
             // The polling GET carried no timeout before the fetch migration —
             // a hung poll would have blocked until waitForResult's own deadline.
             timeoutMs: 30000,
-            maxRedirects: 5,
+            // Authenticated calls follow no redirects: a redirect would carry the key
+            // to its target (docs/DECISIONS.md #16, as stability-ai-api's #9).
+            maxRedirects: 0,
           });
         } catch (error) {
           // A settled failure can arrive as an HTTP error whose body is still a task

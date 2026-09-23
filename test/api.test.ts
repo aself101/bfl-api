@@ -1584,6 +1584,21 @@ describe('BflAPI Class', () => {
       expect(credits.credits).toBe(150.5);
     });
 
+    it('does not follow a redirect with the API key attached', async () => {
+      httpCalls.get.mockResolvedValue({ status: 302, headers: { location: 'https://collector.example/steal' } });
+      const error = await api.getUserCredits().catch(e => e);
+      expect(error).toBeInstanceOf(Error);
+      expect(httpCalls.get.mock.calls.map(([url]) => String(url)).filter(u => u.includes('collector.example'))).toEqual([]);
+      expect(httpCalls.get.mock.calls.length).toBeGreaterThan(0);
+    });
+
+    it('polling URLs follow no redirects either', async () => {
+      httpCalls.get.mockResolvedValue({ status: 302, headers: { location: 'https://collector.example/steal' } });
+      await api.getResult('abc', 'https://api.us1.bfl.ai/v1/get_result?id=abc').catch(e => e);
+      expect(httpCalls.get.mock.calls.map(([url]) => String(url)).filter(u => u.includes('collector.example'))).toEqual([]);
+      expect(httpCalls.get.mock.calls.length).toBeGreaterThan(0);
+    });
+
     it('should handle API errors when fetching credits', async () => {
       httpCalls.get.mockRejectedValue({
         response: { status: 401 },

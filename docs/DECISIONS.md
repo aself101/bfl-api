@@ -247,7 +247,8 @@ code is now the same again; a fix to one should be carried to the other.
 The pre-release security review of 2.0.2 then found two more gaps in that shared
 code, fixed in both packages together: the 6to4 (`2002::/16`) and Teredo
 (`2001::/32`) tunnel forms carry an IPv4 and are now judged by it (stability
-DECISIONS #10, item 6), and deprecated site-local `fec0::/10` is blocked.
+DECISIONS #10, item 6), as is ISATAP after the re-review, and deprecated site-local
+`fec0::/10` is blocked.
 
 ## 13. Retry classification is by type, never by message
 
@@ -319,3 +320,24 @@ whatever `undici-types` version `@types/node` carries.
 global fetch, real `Agent`, local server. A resolver answering public then loopback
 reaches the server without the guard and is refused with it; with undici 8
 installed all four tests fail (checked). Revisit when Node's bundled undici reaches 8.
+
+## 16. Authenticated calls follow no redirects
+
+`_makeRequest` and the polling-URL branch of `getResult` send `x-key`. Until 2.0.2 both
+followed up to five redirects, and `request()` re-sent the caller's headers on every hop,
+so a redirect answered by any host on the path — a hijacked regional subdomain, a dangling
+CNAME, a TLS-terminating proxy — delivered the account's API key to whatever origin its
+`Location` named. The pre-release security re-review reproduced this against a local
+server. Both calls now use `maxRedirects: 0`, as stability-ai-api's API calls always have
+(its DECISIONS #9); a redirect fails the call with `BflHttpError` instead.
+
+That rests on BFL's API not redirecting. Probed 2026-09-22 without a key:
+`api.bfl.ai` answered `/v1/get_result` 404, `/v1/credits` 403 and a generation endpoint
+405, none with a `Location`. **Breaks if** BFL starts redirecting an authenticated
+endpoint: calls fail loudly rather than leak, and the fix is an origin allowlist for that
+redirect, not re-enabling blind following.
+
+As a backstop, `request()` drops credential headers (`authorization`,
+`proxy-authorization`, `cookie`, `x-key`) on any hop that changes origin, the way fetch's
+own redirect mode treats `authorization`. That covers a future authenticated call site
+that forgets `maxRedirects: 0`.

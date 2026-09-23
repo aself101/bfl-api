@@ -33,6 +33,15 @@
 
 import type { Dispatcher } from 'undici';
 
+/**
+ * Request headers that carry credentials. A redirect that leaves the current
+ * origin drops them, as fetch's own redirect mode does for `authorization`:
+ * without this, a redirect answered by any host on the path handed the
+ * caller's API key to whatever origin the `Location` named (found by the
+ * pre-release security re-review). Sticky: once dropped, not restored.
+ */
+const CREDENTIAL_HEADERS = new Set(['authorization', 'proxy-authorization', 'cookie', 'x-key']);
+
 /** Statuses that may carry a `Location` we should follow. */
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 
@@ -278,11 +287,12 @@ export async function request(
     let body: string | undefined =
       json !== undefined && json !== null ? JSON.stringify(json) : undefined;
     let hops = 0;
+    let hopHeaders = headers;
 
     for (;;) {
       const init: RequestInit = {
         method: currentMethod,
-        headers,
+        headers: hopHeaders,
         body,
         redirect: 'manual',
         signal: controller.signal,
@@ -309,6 +319,11 @@ export async function request(
         const next = new URL(location, currentUrl).toString();
         // Re-validate before following. Skipping this is the SSRF hole axios had.
         if (validateHop) await validateHop(next);
+        if (new URL(next).origin !== new URL(currentUrl).origin) {
+          hopHeaders = Object.fromEntries(
+            Object.entries(hopHeaders).filter(([name]) => !CREDENTIAL_HEADERS.has(name.toLowerCase()))
+          );
+        }
         // 303, and 301/302 on POST, become GET without a body — matching
         // long-standing agent behaviour. 307/308 preserve method and body.
         if (response.status === 303 || (currentMethod === 'POST' && response.status !== 307 && response.status !== 308)) {

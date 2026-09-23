@@ -4,7 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node.js Version](https://img.shields.io/node/v/bfl-api)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-blue.svg)](https://www.typescriptlang.org/)
-[![Tests](https://img.shields.io/badge/tests-433%20passing-brightgreen)](test/)
+[![Tests](https://img.shields.io/badge/tests-440%20passing-brightgreen)](test/)
 [![Coverage](https://img.shields.io/badge/coverage-91.5%25-brightgreen)](test/)
 
 A TypeScript/Node.js wrapper for the [Black Forest Labs API](https://docs.bfl.ml/) covering every
@@ -386,8 +386,10 @@ Result URLs are signed and expire after about an hour — download promptly.
   carrier-grade NAT (`100.64/10`), benchmarking (`198.18/15`), `192.0.0/24` and multicast/reserved
   (`224/3`) are blocked, and the whole of IPv6 `fe80::/10`, `fc00::/7` and `ff00::/8`. An IPv6
   address embedding an IPv4 one — mapped (dotted or hex), translated, NAT64, IPv4-compatible — is
-  judged by that IPv4, as are the 6to4 (`2002::/16`) and Teredo (`2001::/32`) tunnel forms;
+  judged by that IPv4, as are the 6to4 (`2002::/16`), Teredo (`2001::/32`) and ISATAP tunnel forms;
   deprecated site-local `fec0::/10` is blocked. **Every** DNS answer is checked, not the first.
+- **The API key never follows a redirect.** Authenticated calls follow no redirects, and any
+  redirect that changes origin drops credential headers (`x-key`, `authorization`, cookies).
 - **Signed URLs stay out of logs and errors:** download log lines and error messages show origin
   and path only, with the query string replaced by `?[redacted]`.
 - **File validation** by magic bytes (PNG/JPEG/WebP/GIF for images, ISO BMFF `ftyp` for video) —
@@ -442,7 +444,7 @@ a `fields` map for 2.0-era parameters.
 
 ```bash
 npm run build                 # tsc → dist/
-npm test                      # 433 tests (vitest)
+npm test                      # 440 tests (vitest)
 npm run test:coverage         # 90.8% lines
 npm run verify                # build + spec control + live spec check + tests — what CI runs
 npm run bfl -- --examples     # run the CLI from source

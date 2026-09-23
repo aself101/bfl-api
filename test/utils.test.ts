@@ -340,6 +340,8 @@ describe('Image Validation (Security)', () => {
       ['https://[2001:0:4136:e378:8000:63bf:80ff:fffe]/x.png', 'Teredo, client 127.0.0.1'],
       ['https://[fec0::1]/x.png', 'site-local fec0::/10'],
       ['https://[feff::1]/x.png', 'site-local, top of fec0::/10'],
+      ['https://[2001:db8::200:5efe:7f00:1]/x.png', 'ISATAP (global IID) wrapping 127.0.0.1'],
+      ['https://[2001:db8::5efe:a00:1]/x.png', 'ISATAP (private IID) wrapping 10.0.0.1'],
     ])('blocks %s (%s)', async (url) => {
       await expect(validateImageUrl(url)).rejects.toThrow(/internal|private|localhost/);
     });
@@ -348,6 +350,7 @@ describe('Image Validation (Security)', () => {
       'https://[2002:5db8:d822::1]/x.png',
       'https://[2001:0:4136:e378:8000:63bf:a247:27dd]/x.png',
       'https://[2001:db9::1]/x.png',
+      'https://[2001:db8::200:5efe:5db8:d822]/x.png',
     ])('allows tunnel forms wrapping a public IPv4, and non-Teredo 2001:: %s', async (url) => {
       await expect(validateImageUrl(url)).resolves.toBe(url);
     });
@@ -670,6 +673,20 @@ describe('Image Conversion', () => {
       const error = await urlToBase64('https://example.com/image.jpg?sig=SECRET-TOKEN').catch(e => e);
       expect(error.message).not.toContain('SECRET-TOKEN');
       expect(error.message).toContain('https://example.com/image.jpg?[redacted]');
+
+      // A malformed URL must not smuggle its query through validateImageUrl's
+      // "Invalid URL" message into an otherwise-redacted outer message.
+      const malformed = 'https://bad host/p.png?sig=SECRET-TOKEN';
+      const errors = [
+        await validateImageUrl(malformed).catch(e => e),
+        await urlToBase64(malformed).catch(e => e),
+        await imageToBase64(malformed).catch(e => e),
+        await downloadImage(malformed, '/tmp/never.png').catch(e => e),
+      ];
+      for (const e of errors) {
+        expect(e).toBeInstanceOf(Error);
+        expect(e.message).not.toContain('SECRET-TOKEN');
+      }
     });
 
     it('URL-to-base64 downloads go through the connect-time SSRF guard dispatcher', async () => {

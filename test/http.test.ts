@@ -424,3 +424,61 @@ describe('redactUrl (log/error-safe URLs)', () => {
     expect(redactUrl('not a url ?sig=abc')).toBe('[unparseable URL]');
   });
 });
+
+describe('redirects: credentials do not cross origins', () => {
+  let a: http.Server;
+  let b: http.Server;
+  let aPort = 0;
+  let bPort = 0;
+  const seenAtA: http.IncomingHttpHeaders[] = [];
+  const seenAtB: http.IncomingHttpHeaders[] = [];
+  const creds = { 'x-key': 'KEY', authorization: 'Bearer KEY', accept: 'application/json' };
+
+  beforeAll(async () => {
+    b = http.createServer((req, res) => {
+      seenAtB.push(req.headers);
+      res.writeHead(200, { 'content-type': 'text/plain' });
+      res.end('b');
+    });
+    await new Promise<void>(resolve => b.listen(0, '127.0.0.1', resolve));
+    bPort = (b.address() as AddressInfo).port;
+    a = http.createServer((req, res) => {
+      seenAtA.push(req.headers);
+      if (req.url === '/cross') {
+        // localhost vs 127.0.0.1: a different origin, as a redirect to another host would be.
+        res.writeHead(302, { location: `http://localhost:${bPort}/` });
+        res.end();
+        return;
+      }
+      if (req.url === '/same') {
+        res.writeHead(302, { location: '/final' });
+        res.end();
+        return;
+      }
+      res.writeHead(200, { 'content-type': 'text/plain' });
+      res.end('a');
+    });
+    await new Promise<void>(resolve => a.listen(0, '127.0.0.1', resolve));
+    aPort = (a.address() as AddressInfo).port;
+  });
+  afterAll(async () => {
+    await new Promise<void>(resolve => a.close(() => resolve()));
+    await new Promise<void>(resolve => b.close(() => resolve()));
+  });
+
+  it('drops credential headers when a redirect changes origin', async () => {
+    await request(`http://127.0.0.1:${aPort}/cross`, { timeoutMs: 5000, headers: creds });
+    const headers = seenAtB[seenAtB.length - 1];
+    expect(headers).toBeDefined();
+    expect(headers['x-key']).toBeUndefined();
+    expect(headers.authorization).toBeUndefined();
+    expect(headers.accept).toBe('application/json');
+  });
+
+  it('keeps them on a same-origin redirect', async () => {
+    await request(`http://127.0.0.1:${aPort}/same`, { timeoutMs: 5000, headers: creds });
+    const final = seenAtA[seenAtA.length - 1];
+    expect(final['x-key']).toBe('KEY');
+    expect(final.authorization).toBe('Bearer KEY');
+  });
+});

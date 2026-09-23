@@ -31,14 +31,25 @@ _Nothing yet._
 - IPv4 carrier-grade NAT (`100.64/10`), benchmarking (`198.18/15`), `192.0.0/24` and
   multicast/reserved (`224/3`) are blocked.
 - The DNS lookup in `validateImageUrl` has a 10 s deadline; it had none.
-- **IPv6 tunnel addresses are judged by the IPv4 they carry.** 6to4 (`2002::/16`) and
-  Teredo (`2001::/32`, client address bit-inverted) passed the blocklist, so
+- **IPv6 tunnel addresses are judged by the IPv4 they carry.** 6to4 (`2002::/16`),
+  Teredo (`2001::/32`, client address bit-inverted) and ISATAP (`…:0:5efe:a.b.c.d` or
+  `…:200:5efe:a.b.c.d` under any prefix) passed the blocklist, so
   `https://[2002:7f00:1::1]` — 6to4 around 127.0.0.1 — was accepted. Deprecated
   site-local `fec0::/10` is now blocked too. Found by the pre-release security review.
+- **The API key no longer follows redirects.** `_makeRequest` (every generation,
+  credits and finetune call) and the polling-URL `getResult` followed up to five
+  redirects and re-sent `x-key` on every hop, to whatever origin the `Location` named —
+  reproduced by the pre-release security re-review. Authenticated calls now follow no
+  redirects (as stability-ai-api's always have; BFL's API was probed and does not
+  redirect), and the shared `request()` loop drops credential headers (`authorization`,
+  `proxy-authorization`, `cookie`, `x-key`) on any cross-origin hop. A redirect on an
+  authenticated call now fails with `BflHttpError` (`Too many redirects (limit 0)`).
 - **Signed result URLs no longer reach logs or error messages.** `urlToBase64` logged
-  the full URL and put it in its error message; BFL result links carry their
-  signature in the query string. They now show origin and path, with the query
-  replaced by `?[redacted]`. Found by the pre-release security review.
+  the full URL and put it in its error message, and the `Invalid URL: …` error carried
+  it into every download error that wraps it; BFL result links carry their signature
+  in the query string. They now show origin and path, with the query replaced by
+  `?[redacted]`, and an unparseable URL is not echoed at all. Found by the pre-release
+  security review and its re-review.
 
 All five are ported from stability-ai-api 1.0.1, which found them in this same code.
 
