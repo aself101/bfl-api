@@ -1049,6 +1049,13 @@ describe('recordSafeValue (dry-run log and metadata parameters)', () => {
   it('elides long non-URL strings (base64 inputs)', () => {
     expect(recordSafeValue('A'.repeat(200))).toBe('<base64 200 chars>');
   });
+  it('recurses into nested objects and unwraps URL instances (round-5 review)', () => {
+    const out = recordSafeValue({ inner: { input_image: 'https://cdn.example/a.png?sig=S' }, url: new URL('https://cdn.example/b.png?sig=S') }) as Record<string, any>;
+    expect(JSON.stringify(out)).not.toContain('sig=S');
+    expect(out.inner.input_image).toBe('https://cdn.example/a.png?[redacted]');
+    expect(out.url).toBe('https://cdn.example/b.png?[redacted]');
+  });
+
   it('maps arrays element-wise and leaves other values alone', () => {
     expect(recordSafeValue(['https://x.example/a?s=1', 'short'])).toEqual(['https://x.example/a?[redacted]', 'short']);
     expect(recordSafeValue(42)).toBe(42);

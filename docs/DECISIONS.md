@@ -392,3 +392,6 @@ keys known to hold secrets are redacted by name, `prompt` is kept whole (the len
 had been eliding long prompts as base64), and every other key falls through to the shape
 rule. **Breaks if** a new secret-bearing parameter is added without being named in
 `SECRET_PARAM_KEYS` — shape will not catch it, which is the lesson of this round.
+`recordSafeValue` also recurses into plain objects (by key, so a nested secret is still
+named) and unwraps `URL` instances; every CLI param is flat today, and stability-ai-api's
+round-5 review showed the gap on the same helper there.

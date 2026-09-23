@@ -299,7 +299,13 @@ export function recordSafeValue(v: unknown): unknown {
     if (v.length > 120) return `<base64 ${v.length} chars>`;
     return v;
   }
+  if (v instanceof URL) return redactUrl(v.href);
   if (Array.isArray(v)) return v.map(recordSafeValue);
+  // Plain objects recurse by key, so a nested secret is still redacted by
+  // name; every CLI param is flat today (round-5 review of stability-ai-api).
+  if (v !== null && typeof v === 'object' && Object.getPrototypeOf(v) === Object.prototype) {
+    return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, recordSafeEntry(k, x)]));
+  }
   return v;
 }
 
