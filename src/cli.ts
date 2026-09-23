@@ -38,6 +38,7 @@ import {
   ensureDirectory,
   setLogLevel,
   logger,
+  recordSafeValue,
 } from './utils.js';
 import { getOutputDir, MODELS, validateModelParams } from './config.js';
 import type {
@@ -726,15 +727,8 @@ async function submit(
  * Render params for a dry run with base64 payloads elided.
  */
 function summarizeParams(params: GenerationParams): string {
-  const elide = (v: unknown): unknown => {
-    if (typeof v === 'string' && v.length > 120 && !/^https?:\/\//.test(v)) {
-      return `<base64 ${v.length} chars>`;
-    }
-    if (Array.isArray(v)) return v.map(elide);
-    return v;
-  };
   return JSON.stringify(
-    Object.fromEntries(Object.entries(params).map(([k, v]) => [k, elide(v)])),
+    Object.fromEntries(Object.entries(params).map(([k, v]) => [k, recordSafeValue(v)])),
     null,
     2
   );

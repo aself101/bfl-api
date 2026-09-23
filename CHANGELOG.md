@@ -71,10 +71,14 @@ _Nothing yet._
   the full URL and put it in its error message, and the `Invalid URL: …` error carried
   it into every download error that wraps it; BFL result links carry their signature
   in the query string. They now show origin and path, with the query replaced by
-  `?[redacted]`, and an unparseable URL is not echoed at all. Found by the pre-release
-  security review and its re-review.
+  `?[redacted]`, and an unparseable URL is not echoed at all. The CLI's `--dry-run` line and
+  the metadata file's `parameters` record *input* URLs the same way (they echoed them in full);
+  the metadata keeps the signed *result* URL on purpose, for re-download. Found by the
+  pre-release security review and its re-reviews.
 
-All five are ported from stability-ai-api 1.0.1, which found them in this same code.
+The SSRF check fixes (every DNS answer, IPv6 ranges, embedded and tunnel IPv4 forms) and the
+rebinding guard are ported from stability-ai-api 1.0.1, which shares this code; the API-key
+fixes (no redirects, BFL-only polling hosts) were found here.
 
 ## [2.0.1] - 2026-09-22
 

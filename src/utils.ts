@@ -285,6 +285,24 @@ export async function validateImageUrl(url: string): Promise<string> {
   return url;
 }
 
+/**
+ * A parameter value as recorded in the CLI's dry-run log line and metadata
+ * `parameters`: a URL with its query redacted (an *input* URL's signature has
+ * no use in a record, and the dry-run line is a log line), a long non-URL
+ * string (a base64 input) elided, arrays element-wise. The *result* URL the
+ * metadata keeps for re-download is written separately and is not passed
+ * through this (docs/DECISIONS.md #17).
+ */
+export function recordSafeValue(v: unknown): unknown {
+  if (typeof v === 'string') {
+    if (/^https?:\/\//i.test(v)) return redactUrl(v);
+    if (v.length > 120) return `<base64 ${v.length} chars>`;
+    return v;
+  }
+  if (Array.isArray(v)) return v.map(recordSafeValue);
+  return v;
+}
+
 /** A resolver with `dns.lookup`'s `{ all: true }` shape; injectable for tests. */
 export type AllAddressResolver = (
   hostname: string,

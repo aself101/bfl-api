@@ -374,10 +374,13 @@ Of the tests that existed, one pinned the old behaviour (`getResult` against
   it reaches the key only through a library caller's own configuration. A caller that
   sets it from untrusted input reopens this decision's bug on their side; the README says
   so. Not fixed in code because any allowlist on `baseUrl` would break the use it exists for.
-- **The metadata file keeps the full signed result URL.** `_metadata.json` records
-  `media_url` / `draft_cache_url` unredacted, and the dry-run and metadata `parameters`
-  echo a caller's own URL inputs in full (`summarizeParams` elides base64, not URLs). The
-  redaction of #14/#16 covers log lines and error messages — text that gets pasted into bug
-  reports and shipped to log aggregators. The metadata file is local output the user asked
-  for, and re-downloading within the URL's hour is what it is for; redacting it would remove
-  that. The README tells users to treat the file like the image itself.
+- **The metadata file keeps the full signed *result* URL — and only that.** `_metadata.json`
+  records `media_url` / `draft_cache_url` unredacted: re-downloading your own output within
+  the URL's hour is what the file is for, and the README tells users to treat it like the
+  image. *Input* URLs are another matter. The first version of this note also kept them in
+  full (the dry-run line and the metadata `parameters` echoed them, since `summarizeParams`
+  elided base64 but not URLs), and that was wrong on both counts: the dry-run line is a log
+  line, which this package redacts, and an input URL's signature has no use in a record of
+  the call. The stability-ai-api round-4 review found the same leak there and made the
+  distinction explicit. `summarizeParams` now goes through `recordSafeValue`, which redacts
+  every URL's query; the result URLs are written separately and untouched.

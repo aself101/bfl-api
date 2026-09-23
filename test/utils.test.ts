@@ -32,6 +32,7 @@ import {
   downloadVideo,
   downloadMedia,
   createGuardedLookup,
+  recordSafeValue,
   type AllAddressResolver,
   MAX_VIDEO_UPLOAD_BYTES,
   pause,
@@ -1037,5 +1038,26 @@ describe('createGuardedLookup (connect-time SSRF guard)', () => {
     await run(createGuardedLookup(spy), {});
     await run(createGuardedLookup(spy), { all: false });
     expect(seen).toEqual([true, true]);
+  });
+});
+
+describe('recordSafeValue (dry-run log and metadata parameters)', () => {
+  it('redacts an input URL\'s query: an input signature has no use in a record', () => {
+    expect(recordSafeValue('https://cdn.example/in.png?X-Signature=SECRET')).toBe('https://cdn.example/in.png?[redacted]');
+  });
+  it('elides long non-URL strings (base64 inputs)', () => {
+    expect(recordSafeValue('A'.repeat(200))).toBe('<base64 200 chars>');
+  });
+  it('maps arrays element-wise and leaves other values alone', () => {
+    expect(recordSafeValue(['https://x.example/a?s=1', 'short'])).toEqual(['https://x.example/a?[redacted]', 'short']);
+    expect(recordSafeValue(42)).toBe(42);
+    expect(recordSafeValue('a prompt')).toBe('a prompt');
+  });
+  it('cli.ts summarizeParams uses it (the function is not importable: cli.ts runs main)', async () => {
+    const { readFileSync } = await import('node:fs');
+    const source = readFileSync(new URL('../src/cli.ts', import.meta.url), 'utf8');
+    const body = source.slice(source.indexOf('function summarizeParams'), source.indexOf('function summarizeParams') + 600);
+    expect(body).toContain('recordSafeValue');
+    expect(body).not.toMatch(/!\/\^https\?/);
   });
 });
