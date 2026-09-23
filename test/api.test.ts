@@ -1503,10 +1503,12 @@ describe('BflAPI Class', () => {
       };
       httpCalls.get.mockResolvedValue(mockResponse);
 
-      await api.getResult('task_123', 'https://custom.api.url/result');
+      // Until 2.0.2 this used an arbitrary host (https://custom.api.url); the
+      // key now goes only to BFL hosts or the configured baseUrl (DECISIONS #17).
+      await api.getResult('task_123', 'https://api.eu2.bfl.ai/v1/get_result?id=task_123');
 
       expect(httpCalls.get).toHaveBeenCalledWith(
-        'https://custom.api.url/result',
+        'https://api.eu2.bfl.ai/v1/get_result?id=task_123',
         expect.any(Object)
       );
     });
@@ -1597,6 +1599,52 @@ describe('BflAPI Class', () => {
       await api.getResult('abc', 'https://api.us1.bfl.ai/v1/get_result?id=abc').catch(e => e);
       expect(httpCalls.get.mock.calls.map(([url]) => String(url)).filter(u => u.includes('collector.example'))).toEqual([]);
       expect(httpCalls.get.mock.calls.length).toBeGreaterThan(0);
+    });
+
+    // The key goes to whatever host a polling URL names; the URL comes from the
+    // API response, the CLI's --polling-url flag, or a resumed metadata file.
+    it.each([
+      ['http://api.bfl.ai/v1/get_result?id=abc', 'plain http'],
+      ['https://collector.example/v1/get_result?id=abc', 'foreign host'],
+      ['https://api.bfl.ai.evil.example/v1/get_result?id=abc', 'bfl.ai as a label prefix'],
+      ['https://evilbfl.ai/v1/get_result?id=abc', 'bfl.ai as a string suffix'],
+      ['https://127.0.0.1/v1/get_result?id=abc', 'IP literal'],
+      ['not a url', 'unparseable'],
+    ])('refuses to send the API key to a polling URL: %s (%s)', async (pollingUrl) => {
+      const error = await api.getResult('abc', pollingUrl).catch(e => e);
+      expect(error).toBeInstanceOf(Error);
+      expect(error.message).toMatch(/polling URL/i);
+      expect(httpCalls.get).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      'https://api.bfl.ai/v1/get_result?id=abc',
+      'https://api.us1.bfl.ai/v1/get_result?id=abc',
+      'https://bfl.ai/v1/get_result?id=abc',
+    ])('sends the key to an official BFL polling host: %s', async (pollingUrl) => {
+      httpCalls.get.mockResolvedValue({ data: { id: 'abc', status: 'Ready', result: {} } });
+      await api.getResult('abc', pollingUrl);
+      expect(httpCalls.get).toHaveBeenCalledWith(pollingUrl, expect.anything());
+    });
+
+    it('also allows the configured baseUrl host (proxies / gateways)', async () => {
+      const proxied = new BflAPI({ apiKey: 'test_api_key_for_unit_tests', baseUrl: 'https://gateway.corp.example', logLevel: 'NONE' });
+      httpCalls.get.mockResolvedValue({ data: { id: 'abc', status: 'Ready', result: {} } });
+      await proxied.getResult('abc', 'https://gateway.corp.example/v1/get_result?id=abc');
+      expect(httpCalls.get).toHaveBeenCalledTimes(1);
+      const refused = await proxied.getResult('abc', 'https://other.corp.example/v1/get_result?id=abc').catch(e => e);
+      expect(refused).toBeInstanceOf(Error);
+      expect(httpCalls.get).toHaveBeenCalledTimes(1);
+    });
+
+    it('waitForResult refuses an untrusted polling URL before any request', async () => {
+      const error = await api
+        .waitForResult('abc', { pollingUrl: 'https://collector.example/poll', timeout: 5, pollInterval: 0.01, showSpinner: false })
+        .catch(e => e);
+      expect(error).toBeInstanceOf(Error);
+      // The refusal itself, up front — not a timeout after retrying it.
+      expect(error.message).toMatch(/polling URL/i);
+      expect(httpCalls.get).not.toHaveBeenCalled();
     });
 
     it('should handle API errors when fetching credits', async () => {

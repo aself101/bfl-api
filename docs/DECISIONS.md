@@ -341,3 +341,27 @@ As a backstop, `request()` drops credential headers (`authorization`,
 `proxy-authorization`, `cookie`, `x-key`) on any hop that changes origin, the way fetch's
 own redirect mode treats `authorization`. That covers a future authenticated call site
 that forgets `maxRedirects: 0`.
+
+## 17. The API key goes only to BFL hosts
+
+#16 stopped the key following a redirect; the *first* request had the same problem.
+`getResult` sent `x-key` to whatever host its polling URL named, and that URL arrives
+from the submit response, the CLI's `--polling-url`, or a metadata file the CLI wrote
+and later reads back — so a tampered file sent the key to any host, over plain `http` if
+it said so. The round-3 security review demonstrated it against a local server.
+
+`getResult` now refuses, before any request, a polling URL that is not `https` or whose
+host is not `bfl.ai`, a subdomain of it, or exactly the configured `baseUrl` host.
+Subdomains cover BFL's regional hosts (`api.us1.bfl.ai`, `api.eu2.bfl.ai`, ...), named in
+each submit response. The `baseUrl` host keeps a proxy or gateway working without
+widening the rule to that host's whole domain — deriving a "registrable domain" from a
+hostname needs the public-suffix list (two-label guessing makes `co.uk` a domain), so
+the rule takes the exact host instead. `waitForResult` goes through `getResult`, and the
+refusal is a plain `Error`, which its loop does not retry.
+
+**Breaks if** BFL serves polling URLs from a domain other than `bfl.ai`: every poll then
+fails with a message naming the refused URL (redacted). The fix is to add that domain to
+`TRUSTED_POLLING_DOMAIN`'s check, deliberately.
+
+Of the tests that existed, one pinned the old behaviour (`getResult` against
+`https://custom.api.url/result`); it now uses a regional BFL host, with a comment.

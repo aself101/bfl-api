@@ -23,6 +23,7 @@ import winston from 'winston';
 import { getBflApiKey, BASE_URL, MODELS, MODEL_FIELDS, FLUX3_VIDEO_MODE_FIELDS, MAX_RETRIES } from './config.js';
 import {
   requestJson,
+  redactUrl,
   BflHttpError,
   BflNetworkError,
   BflTimeoutError,
@@ -60,6 +61,13 @@ import type {
   ModelEndpointKey,
   GenericErrorMessages,
 } from './types/index.js';
+
+/**
+ * The domain whose hosts may receive the API key on a polling URL, alongside
+ * the configured baseUrl host. BFL serves results from regional subdomains
+ * (api.us1.bfl.ai, api.eu2.bfl.ai, ...) named in each submit response.
+ */
+const TRUSTED_POLLING_DOMAIN = 'bfl.ai';
 
 /** Statuses on which polling keeps going. */
 const IN_FLIGHT_STATUSES: ReadonlySet<TaskStatus> = new Set(['Pending', 'Reasoning', 'Generating']);
@@ -989,7 +997,8 @@ export class BflAPI {
       let result: TaskResult;
 
       if (pollingUrl) {
-        // Use the full polling URL provided by the API
+        // Use the full polling URL provided by the API — once it is known to be BFL's.
+        this._assertTrustedPollingUrl(pollingUrl);
         const headers = {
           accept: 'application/json',
           'x-key': this.apiKey,
@@ -1040,6 +1049,36 @@ export class BflAPI {
       const err = error as Error;
       this.logger.error(`Error polling task ${taskId}: ${err.message}`);
       throw error;
+    }
+  }
+
+  /**
+   * Refuse to send the API key to a polling URL outside BFL. The URL reaches
+   * getResult from the API's own submit response, the CLI's --polling-url
+   * flag, or a resumed metadata file; until 2.0.2 the key went to whatever
+   * host it named, over plain http if asked (found by the pre-release
+   * security review, docs/DECISIONS.md #17). Allowed: https, and a host that
+   * is bfl.ai, a subdomain of it, or exactly the configured baseUrl host (so
+   * a proxy or gateway keeps working).
+   *
+   * @throws Error naming the (redacted) URL when it is not trusted
+   */
+  private _assertTrustedPollingUrl(pollingUrl: string): void {
+    let parsed: URL;
+    try {
+      parsed = new URL(pollingUrl);
+    } catch (error) {
+      throw new Error(`Refusing polling URL ${redactUrl(pollingUrl)}: not a valid URL`, { cause: error });
+    }
+    const host = parsed.hostname.toLowerCase();
+    const baseHost = new URL(this.baseUrl).hostname.toLowerCase();
+    const trusted =
+      host === TRUSTED_POLLING_DOMAIN || host.endsWith(`.${TRUSTED_POLLING_DOMAIN}`) || host === baseHost;
+    if (parsed.protocol !== 'https:' || !trusted) {
+      throw new Error(
+        `Refusing to send the API key to polling URL ${redactUrl(pollingUrl)}: ` +
+          `it must be https on ${TRUSTED_POLLING_DOMAIN} (or a subdomain) or ${baseHost}`
+      );
     }
   }
 

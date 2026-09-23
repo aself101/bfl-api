@@ -482,3 +482,69 @@ describe('redirects: credentials do not cross origins', () => {
     expect(final.authorization).toBe('Bearer KEY');
   });
 });
+
+describe('redirects: credential stripping edge cases', () => {
+  let a: http.Server;
+  let b: http.Server;
+  let aPort = 0;
+  let bPort = 0;
+  const seenAtA: { url?: string; headers: http.IncomingHttpHeaders }[] = [];
+  const seenAtB: { url?: string; headers: http.IncomingHttpHeaders }[] = [];
+
+  beforeAll(async () => {
+    a = http.createServer((req, res) => {
+      seenAtA.push({ url: req.url, headers: req.headers });
+      if (req.url === '/start') {
+        res.writeHead(302, { location: `http://localhost:${bPort}/bounce` });
+        res.end();
+        return;
+      }
+      res.writeHead(200, { 'content-type': 'text/plain' });
+      res.end('a');
+    });
+    await new Promise<void>(resolve => a.listen(0, '127.0.0.1', resolve));
+    aPort = (a.address() as AddressInfo).port;
+    b = http.createServer((req, res) => {
+      seenAtB.push({ url: req.url, headers: req.headers });
+      if (req.url === '/bounce') {
+        // A same-origin hop on the foreign host: a non-sticky strip would
+        // restore the credentials here.
+        res.writeHead(302, { location: '/bounce2' });
+        res.end();
+        return;
+      }
+      // Then straight back to the original origin.
+      res.writeHead(302, { location: `http://127.0.0.1:${aPort}/final` });
+      res.end();
+    });
+    await new Promise<void>(resolve => b.listen(0, '127.0.0.1', resolve));
+    bPort = (b.address() as AddressInfo).port;
+  });
+  afterAll(async () => {
+    await new Promise<void>(resolve => a.close(() => resolve()));
+    await new Promise<void>(resolve => b.close(() => resolve()));
+  });
+
+  it('matches credential header names case-insensitively', async () => {
+    const res = await request(`http://127.0.0.1:${aPort}/start`, {
+      timeoutMs: 5000,
+      headers: { 'X-Key': 'KEY', Authorization: 'Bearer KEY', Accept: 'application/json' },
+    });
+    expect(res.status).toBe(200);
+    const final = seenAtA.find(r => r.url === '/final');
+    expect(final).toBeDefined();
+    expect(final!.headers['x-key']).toBeUndefined();
+    expect(final!.headers.authorization).toBeUndefined();
+    expect(final!.headers.accept).toBe('application/json');
+  });
+
+  it('stays stripped on later hops: same-origin on the foreign host, and back home', async () => {
+    seenAtA.length = 0;
+    seenAtB.length = 0;
+    await request(`http://127.0.0.1:${aPort}/start`, { timeoutMs: 5000, headers: { 'x-key': 'KEY' } });
+    expect(seenAtA.find(r => r.url === '/start')!.headers['x-key']).toBe('KEY');
+    expect(seenAtB.map(r => r.url)).toEqual(['/bounce', '/bounce2']);
+    for (const hop of seenAtB) expect(hop.headers['x-key']).toBeUndefined();
+    expect(seenAtA.find(r => r.url === '/final')!.headers['x-key']).toBeUndefined();
+  });
+});

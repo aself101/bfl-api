@@ -44,6 +44,14 @@ _Nothing yet._
   redirect), and the shared `request()` loop drops credential headers (`authorization`,
   `proxy-authorization`, `cookie`, `x-key`) on any cross-origin hop. A redirect on an
   authenticated call now fails with `BflHttpError` (`Too many redirects (limit 0)`).
+- **The API key is only sent to BFL.** `getResult` (and `waitForResult`, which calls
+  it) sent `x-key` to whatever host a polling URL named — over plain `http` if asked.
+  The URL comes from the submit response, the CLI's `--polling-url`, or a resumed
+  metadata file, so a tampered file handed the key to any host (demonstrated by the
+  pre-release security review, round 3). The key now goes only to an `https` URL whose
+  host is `bfl.ai`, a subdomain of it (the regional hosts), or exactly the configured
+  `baseUrl` host; anything else throws before a request is made. **Behavior change:**
+  a polling URL on any other host, which 2.0.1 accepted, is now refused.
 - **Signed result URLs no longer reach logs or error messages.** `urlToBase64` logged
   the full URL and put it in its error message, and the `Invalid URL: …` error carried
   it into every download error that wraps it; BFL result links carry their signature
