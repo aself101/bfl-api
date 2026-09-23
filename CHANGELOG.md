@@ -10,6 +10,21 @@ _Nothing yet._
 
 ## [2.0.2] - 2026-09-22
 
+### Added
+
+- `createGuardedLookup` and the `AllAddressResolver` type in `bfl-api/utils`.
+- `undici` as a runtime dependency, pinned to major 7: an undici 8 `Agent` is rejected
+  by Node 22's and 24's global fetch (`UND_ERR_INVALID_ARG`); see DECISIONS #15.
+
+### Changed
+
+- The two moderation errors say what was flagged. `Content Moderated` means BFL flagged the
+  generated output, yet the message told the caller to revise the prompt; `Request Moderated`
+  (the prompt or an input image) said the same thing. Both keep their prefixes (`Content was
+  moderated` / `Request was moderated`) for callers that match on them. Reported against
+  1.7.1, whose `waitForResult` also treated `Request Moderated` as in-progress and polled until
+  the timeout; that part was fixed in 2.0.1 and is pinned by a test.
+
 ### Security
 
 - **DNS rebinding is closed for URL downloads** (`urlToBase64`, `imageToBase64` with a
@@ -60,12 +75,6 @@ _Nothing yet._
   security review and its re-review.
 
 All five are ported from stability-ai-api 1.0.1, which found them in this same code.
-
-### Added
-
-- `createGuardedLookup` and the `AllAddressResolver` type in `bfl-api/utils`.
-- `undici` as a runtime dependency, pinned to major 7: an undici 8 `Agent` is rejected
-  by Node 22's and 24's global fetch (`UND_ERR_INVALID_ARG`); see DECISIONS #15.
 
 ## [2.0.1] - 2026-09-22
 

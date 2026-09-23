@@ -1389,6 +1389,22 @@ describe('BflAPI Class', () => {
       expect(httpCalls.get).toHaveBeenCalledTimes(3);
     });
 
+    // The two moderation statuses flag different things: Content Moderated is
+    // the generated output, Request Moderated the prompt or an input. 2.0.1 told
+    // both to "revise your prompt". The prefixes stay, since callers match them.
+    it('names what each moderation status flagged', async () => {
+      httpCalls.get.mockResolvedValueOnce({ data: { id: 't', status: 'Content Moderated' } });
+      const content = await api.waitForResult('t', { pollInterval: 0.01, showSpinner: false }).catch(e => e);
+      expect(content.message).toMatch(/^Content was moderated/);
+      expect(content.message).toMatch(/generated output/);
+      expect(content.message).not.toMatch(/revise your prompt/i);
+
+      httpCalls.get.mockResolvedValueOnce({ data: { id: 't', status: 'Request Moderated' } });
+      const request = await api.waitForResult('t', { pollInterval: 0.01, showSpinner: false }).catch(e => e);
+      expect(request.message).toMatch(/^Request was moderated/);
+      expect(request.message).toMatch(/prompt or an input/);
+    });
+
     it('should treat Request Moderated as terminal and not retry', async () => {
       httpCalls.get.mockResolvedValue({
         data: { id: 'task_123', status: 'Request Moderated' }

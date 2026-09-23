@@ -1155,13 +1155,13 @@ export class BflAPI {
             );
           } else if (result.status === 'Content Moderated') {
             throw new BflTaskError(
-              'Content was moderated. Please revise your prompt.',
+              'Content was moderated: BFL flagged the generated output, not the request. Retry with a different prompt or seed.',
               'Content Moderated',
               taskId
             );
           } else if (result.status === 'Request Moderated') {
             throw new BflTaskError(
-              'Request was moderated. Please revise your prompt or inputs.',
+              'Request was moderated: BFL flagged the prompt or an input image. Revise them before resubmitting.',
               'Request Moderated',
               taskId
             );

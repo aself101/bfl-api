@@ -467,8 +467,10 @@ Publishing is manual: bump `version` in `package.json`, add a CHANGELOG entry, `
   This is not retried automatically, since a real balance failure should not loop.
 - **`Generation failed: Invalid or corrupted image input` on v2v** — a draft render was rejected as
   `start_video` in testing; a full render was accepted. Use a non-draft clip.
-- **`Content was moderated` / `Request was moderated`** — revise the prompt or inputs; these are not
-  retried. Video tolerates less (`safety_tolerance` ≤4) than images.
+- **`Content was moderated`** — the *generated output* was flagged; retry with a different prompt or
+  seed. **`Request was moderated`** — the *prompt or an input image* was flagged; revise them. Both
+  fail at once and are not retried (1.x kept polling a moderated request until the timeout). Video
+  tolerates less (`safety_tolerance` ≤4) than images.
 - **`Task not found` / 404 from `--get-result`** — tasks are regional; pass the `polling_url` from
   the submit response or the metadata file (`--polling-url`). Otherwise the id is wrong or the task
   expired; results are retained ~1 hour.
