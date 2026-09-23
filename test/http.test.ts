@@ -18,6 +18,7 @@ import {
   BflNetworkError,
   BflTimeoutError,
 } from '../src/http.js';
+import { redactUrl } from '../src/http.js';
 import { Agent } from 'undici';
 import type { LookupAddress } from 'dns';
 import { createGuardedLookup } from '../src/utils.js';
@@ -406,5 +407,20 @@ describe('dispatcher: connect-time SSRF guard', () => {
     const error = await request(`http://localhost:${port}/`, { timeoutMs: 5000, dispatcher }).catch(e => e);
     expect(error.code).toBe('ESSRFBLOCKED');
     expect(connections).toBe(0);
+  });
+});
+
+describe('redactUrl (log/error-safe URLs)', () => {
+  it('replaces a query string, which is where signed URLs carry their signature', () => {
+    expect(redactUrl('https://cdn.example/a/b.png?X-Amz-Signature=abc&se=2026')).toBe('https://cdn.example/a/b.png?[redacted]');
+  });
+  it('leaves a URL with no query unchanged', () => {
+    expect(redactUrl('https://cdn.example/a/b.png')).toBe('https://cdn.example/a/b.png');
+  });
+  it('drops credentials and the fragment', () => {
+    expect(redactUrl('https://user:secret@cdn.example/p.png#frag')).toBe('https://cdn.example/p.png');
+  });
+  it('does not echo unparseable input', () => {
+    expect(redactUrl('not a url ?sig=abc')).toBe('[unparseable URL]');
   });
 });

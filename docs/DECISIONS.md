@@ -244,6 +244,11 @@ was recognised, while Node's URL parser rewrites `[::ffff:127.0.0.1]` to
 `[::ffff:7f00:1]`, so the hex form of loopback passed. The two packages' SSRF
 code is now the same again; a fix to one should be carried to the other.
 
+The pre-release security review of 2.0.2 then found two more gaps in that shared
+code, fixed in both packages together: the 6to4 (`2002::/16`) and Teredo
+(`2001::/32`) tunnel forms carry an IPv4 and are now judged by it (stability
+DECISIONS #10, item 6), and deprecated site-local `fec0::/10` is blocked.
+
 ## 13. Retry classification is by type, never by message
 
 The old polling loop decided retriability with `err.message.includes(...)`.

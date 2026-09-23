@@ -31,6 +31,14 @@ _Nothing yet._
 - IPv4 carrier-grade NAT (`100.64/10`), benchmarking (`198.18/15`), `192.0.0/24` and
   multicast/reserved (`224/3`) are blocked.
 - The DNS lookup in `validateImageUrl` has a 10 s deadline; it had none.
+- **IPv6 tunnel addresses are judged by the IPv4 they carry.** 6to4 (`2002::/16`) and
+  Teredo (`2001::/32`, client address bit-inverted) passed the blocklist, so
+  `https://[2002:7f00:1::1]` — 6to4 around 127.0.0.1 — was accepted. Deprecated
+  site-local `fec0::/10` is now blocked too. Found by the pre-release security review.
+- **Signed result URLs no longer reach logs or error messages.** `urlToBase64` logged
+  the full URL and put it in its error message; BFL result links carry their
+  signature in the query string. They now show origin and path, with the query
+  replaced by `?[redacted]`. Found by the pre-release security review.
 
 All five are ported from stability-ai-api 1.0.1, which found them in this same code.
 
