@@ -107,7 +107,12 @@ export function installHttpMock(): void {
           body = rawBody;
         }
       }
-      const config = { headers: init?.headers as Record<string, string> | undefined };
+      // dispatcher is recorded so tests can assert downloads go through the
+      // connect-time SSRF guard (src/utils.ts createGuardedLookup).
+      const config = {
+        headers: init?.headers as Record<string, string> | undefined,
+        dispatcher: (init as { dispatcher?: unknown } | undefined)?.dispatcher,
+      };
 
       try {
         const recorded =

@@ -9,9 +9,14 @@ import fs from 'fs/promises';
 import { statSync } from 'fs';
 import path from 'path';
 import winston from 'winston';
-import { requestBytes } from './http.js';
+import { requestBytes, SSRF_BLOCKED_CODE } from './http.js';
 import { lookup } from 'dns/promises';
+import { lookup as lookupCallback } from 'dns';
+import type { LookupAddress, LookupAllOptions } from 'dns';
 import { isIPv4, isIPv6 } from 'net';
+import type { LookupFunction } from 'net';
+import { Agent } from 'undici';
+import type { Dispatcher } from 'undici';
 import type {
   SpinnerObject,
   ImageValidationConstraints,
@@ -31,14 +36,95 @@ const logger = winston.createLogger({
   transports: [new winston.transports.Console()],
 });
 
+/** Deadline for the DNS lookup in validateImageUrl. */
+const DNS_TIMEOUT_MS = 10_000;
+
+/** Reject if `promise` has not settled within `ms`. */
+async function withTimeout<T>(promise: Promise<T>, ms: number, what: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`${what} timed out after ${ms}ms`)), ms);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+/** A caught value as an Error (ported from stability-ai-api, kept private here). */
+function toError(value: unknown): Error {
+  return value instanceof Error ? value : new Error(String(value));
+}
+
+/** A caught value's Node error code, if it has one. */
+function errorCode(value: unknown): string | undefined {
+  if (typeof value === 'object' && value !== null && 'code' in value && typeof value.code === 'string') {
+    return value.code;
+  }
+  return undefined;
+}
+
 /**
- * Check if an IP address is in a blocked range (private, loopback, or cloud metadata).
+ * Expand an IPv6 address to its 8 hextets (numbers), accepting a trailing
+ * dotted-quad. Returns null if it is not a well-formed IPv6 literal.
+ */
+function expandIPv6(ip: string): number[] | null {
+  if (!isIPv6(ip)) return null;
+  let text = ip;
+  const dotted = text.match(/(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
+  if (dotted) {
+    const [a, b, c, d] = dotted.slice(1).map(Number);
+    text = text.slice(0, dotted.index) + ((a << 8) | b).toString(16) + ':' + ((c << 8) | d).toString(16);
+  }
+  const [head, tail] = text.split('::');
+  const parse = (part: string | undefined) => (part ? part.split(':').map(h => parseInt(h, 16)) : []);
+  const left = parse(head);
+  const right = parse(tail);
+  const fill = tail === undefined ? [] : new Array(8 - left.length - right.length).fill(0);
+  const hextets = [...left, ...fill, ...right];
+  return hextets.length === 8 ? hextets : null;
+}
+
+/**
+ * The IPv4 address an IPv6 address embeds and routes to, if any: IPv4-mapped
+ * (::ffff:0:0/96), IPv4-translated (::ffff:0:0:0/96), NAT64 (64:ff9b::/96) and
+ * the deprecated IPv4-compatible form (::/96, excluding :: and ::1).
+ *
+ * Until 2.0.2 only the *dotted* mapped form was recognised. Node's URL parser
+ * normalises https://[::ffff:127.0.0.1] to [::ffff:7f00:1], so the hex form —
+ * the one validateImageUrl actually sees after parsing — bypassed the check.
+ */
+function embeddedIPv4(ip: string): string | null {
+  const h = expandIPv6(ip);
+  if (!h) return null;
+  const zero = (from: number, to: number) => h.slice(from, to).every(x => x === 0);
+  const isMapped = zero(0, 5) && h[5] === 0xffff;
+  const isTranslated = zero(0, 4) && h[4] === 0xffff && h[5] === 0;
+  const isNat64 = h[0] === 0x64 && h[1] === 0xff9b && zero(2, 6);
+  const isCompatible = zero(0, 6) && (h[6] !== 0 || h[7] > 1);
+  if (!(isMapped || isTranslated || isNat64 || isCompatible)) return null;
+  return [h[6] >> 8, h[6] & 0xff, h[7] >> 8, h[7] & 0xff].join('.');
+}
+
+/**
+ * Check if an IP address is blocked (private, localhost, or cloud metadata).
+ * Used for DNS rebinding prevention.
  *
  * @param ip - IP address to check
  * @returns True if IP is blocked
  */
 function isBlockedIP(ip: string): boolean {
-  const cleanIP = ip.replace(/^\[|\]$/g, ''); // Remove IPv6 brackets
+  const cleanIP = ip.replace(/^\[|\]$/g, '').toLowerCase(); // Remove IPv6 brackets
+
+  // An IPv6 address that embeds an IPv4 one is judged by that IPv4 — in any
+  // spelling (dotted or hex), and whether it came from a URL or from DNS.
+  const v4 = embeddedIPv4(cleanIP);
+  if (v4) {
+    return isBlockedIP(v4);
+  }
 
   // Block localhost variations
   if (cleanIP === 'localhost' || cleanIP === '127.0.0.1' || cleanIP === '::1') {
@@ -46,32 +132,46 @@ function isBlockedIP(ip: string): boolean {
   }
 
   // Block cloud metadata endpoints
-  const blockedHosts = ['metadata.google.internal', 'metadata', '169.254.169.254'];
+  const blockedHosts = [
+    'metadata.google.internal',
+    'metadata',
+    '169.254.169.254',
+  ];
   if (blockedHosts.includes(cleanIP)) {
     return true;
   }
 
   // Block private IP ranges and special addresses
   const blockedPatterns = [
-    /^127\./, // Loopback
-    /^10\./, // Private Class A
+    /^127\./,                    // Loopback
+    /^10\./,                     // Private Class A
     /^172\.(1[6-9]|2[0-9]|3[0-1])\./, // Private Class B
-    /^192\.168\./, // Private Class C
-    /^169\.254\./, // Link-local (AWS metadata)
-    /^0\./, // Invalid range
-    /^::1$/, // IPv6 loopback
-    /^fe80:/, // IPv6 link-local
-    /^fc00:/, // IPv6 unique local
-    /^fd00:/, // IPv6 unique local
+    /^192\.168\./,               // Private Class C
+    /^169\.254\./,               // Link-local (AWS metadata)
+    /^0\./,                      // "This network" (0.0.0.0/8)
+    /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./, // Carrier-grade NAT (100.64.0.0/10)
+    /^192\.0\.0\./,              // IETF protocol assignments (192.0.0.0/24)
+    /^198\.1[89]\./,             // Benchmarking (198.18.0.0/15)
+    /^(22[4-9]|2[3-5]\d)\./,      // Multicast and reserved (224.0.0.0/3)
+    /^ff[0-9a-f]{2}:/,           // IPv6 multicast (ff00::/8)
+    /^::1?$/,                    // IPv6 loopback / unspecified
+    // fe80::/10 and fc00::/7 are prefix *ranges*, not literals. Until 2.0.2 these
+    // were /^fe80:/, /^fc00:/, /^fd00:/, which passed fd12:3456::1 and every
+    // other ULA address. A first hextet with fewer than four digits has
+    // implied leading zeros (fd1:: is 0x0fd1), so exactly four are required.
+    /^fe[89ab][0-9a-f]:/,        // IPv6 link-local (fe80::/10)
+    /^f[cd][0-9a-f]{2}:/,        // IPv6 unique local (fc00::/7)
   ];
 
-  return blockedPatterns.some((pattern) => pattern.test(cleanIP));
+  return blockedPatterns.some(pattern => pattern.test(cleanIP));
 }
 
 /**
  * Validate image URL for security.
- * Enforces HTTPS, blocks private IPs, localhost, and cloud metadata endpoints.
- * Performs DNS resolution to prevent DNS rebinding attacks.
+ * Enforces HTTPS and blocks private IPs, localhost, and cloud metadata endpoints.
+ * Resolves domain names and checks every answer. This is the check-time half:
+ * downloads also connect through `createGuardedLookup`, which re-checks the
+ * addresses actually connected to — that, not this, is what stops DNS rebinding.
  *
  * @param url - URL to validate
  * @returns Validated URL
@@ -93,14 +193,14 @@ export async function validateImageUrl(url: string): Promise<string> {
 
     // Check against private IP patterns
     const privatePatterns = [
-      /^10\./, // Private Class A
+      /^10\./,                     // Private Class A
       /^172\.(1[6-9]|2[0-9]|3[0-1])\./, // Private Class B
-      /^192\.168\./, // Private Class C
-      /^169\.254\./, // Link-local (AWS metadata)
-      /^0\./, // Invalid range
+      /^192\.168\./,               // Private Class C
+      /^169\.254\./,               // Link-local (AWS metadata)
+      /^0\./,                      // Invalid range
     ];
 
-    if (privatePatterns.some((pattern) => pattern.test(extractedIPv4))) {
+    if (privatePatterns.some(pattern => pattern.test(extractedIPv4))) {
       logger.warn(`SECURITY: Blocked IPv4-mapped IPv6 private IP: ${url}`);
       throw new Error('Access to internal/private IP addresses is not allowed');
     }
@@ -110,8 +210,8 @@ export async function validateImageUrl(url: string): Promise<string> {
 
   try {
     parsed = new URL(url);
-  } catch {
-    throw new Error(`Invalid URL: ${url}`);
+  } catch (error) {
+    throw new Error(`Invalid URL: ${url}`, { cause: error });
   }
 
   // Only allow HTTPS (not HTTP)
@@ -123,7 +223,6 @@ export async function validateImageUrl(url: string): Promise<string> {
   const cleanHostname = hostname.replace(/^\[|\]$/g, ''); // Remove IPv6 brackets
 
   // First check if hostname itself is blocked (before DNS resolution)
-  // This catches 'localhost', 'metadata.google.internal', 'metadata', etc.
   const blockedHosts = ['localhost', 'metadata.google.internal', 'metadata'];
   if (blockedHosts.includes(cleanHostname)) {
     logger.warn(`SECURITY: Blocked access to prohibited hostname: ${hostname}`);
@@ -138,35 +237,110 @@ export async function validateImageUrl(url: string): Promise<string> {
       throw new Error('Access to internal/private IP addresses is not allowed');
     }
   } else {
-    // Hostname is a domain name - perform DNS resolution to prevent DNS rebinding
+    // Hostname is a domain name: resolve and check it now, for an early and
+    // readable refusal. The connect-time guard re-checks what is connected to.
+    // Only the lookup sits inside the try: until 2.0.2 the blocked-address check
+    // did too, and the catch told its own error apart from a DNS failure by
+    // matching the message text 'resolves to internal'.
+    logger.debug(`Resolving DNS for hostname: ${hostname}`);
+    let addresses: { address: string }[];
     try {
-      logger.debug(`Resolving DNS for hostname: ${hostname}`);
-      const { address } = await lookup(hostname);
-      logger.debug(`DNS resolved ${hostname} → ${address}`);
-
-      // Validate the resolved IP address
-      if (isBlockedIP(address)) {
-        logger.warn(`SECURITY: DNS resolution of ${hostname} points to blocked IP: ${address}`);
-        throw new Error(`Domain ${hostname} resolves to internal/private IP address`);
-      }
-
-      logger.debug(`DNS validation passed for ${hostname} (resolved to ${address})`);
+      // Every address, not the first: a name with one public and one private
+      // record passed a first-address check, and the client may connect to
+      // either.
+      // Bounded: the OS resolver has no deadline of its own, and this runs
+      // before request()'s idle timer starts.
+      addresses = await withTimeout(lookup(hostname, { all: true }), DNS_TIMEOUT_MS, `DNS lookup for ${hostname}`);
     } catch (error) {
-      const err = error as NodeJS.ErrnoException & { message?: string };
-      if (err.code === 'ENOTFOUND') {
+      if (errorCode(error) === 'ENOTFOUND') {
         logger.warn(`SECURITY: Domain ${hostname} could not be resolved`);
-        throw new Error(`Domain ${hostname} could not be resolved`);
-      } else if (err.message && err.message.includes('resolves to internal')) {
-        // Re-throw our validation errors
-        throw error;
-      } else {
-        logger.warn(`SECURITY: DNS lookup failed for ${hostname}: ${err.message}`);
-        throw new Error(`Failed to validate domain ${hostname}: ${err.message}`);
+        throw new Error(`Domain ${hostname} could not be resolved`, { cause: error });
       }
+      const err = toError(error);
+      logger.warn(`SECURITY: DNS lookup failed for ${hostname}: ${err.message}`);
+      throw new Error(`Failed to validate domain ${hostname}: ${err.message}`, { cause: error });
     }
+    logger.debug(`DNS resolved ${hostname} → ${addresses.map(a => a.address).join(', ')}`);
+
+    const blocked = addresses.find(a => isBlockedIP(a.address));
+    if (blocked) {
+      logger.warn(`SECURITY: DNS resolution of ${hostname} points to blocked IP: ${blocked.address}`);
+      throw new Error(`Domain ${hostname} resolves to internal/private IP address`);
+    }
+
+    logger.debug(`DNS validation passed for ${hostname}`);
   }
 
   return url;
+}
+
+/** A resolver with `dns.lookup`'s `{ all: true }` shape; injectable for tests. */
+export type AllAddressResolver = (
+  hostname: string,
+  options: LookupAllOptions,
+  callback: (err: NodeJS.ErrnoException | null, addresses: LookupAddress[]) => void
+) => void;
+
+/**
+ * Build a connect-time `lookup` for an undici `Agent` that refuses to connect
+ * when any resolved address is blocked (private, loopback, link-local,
+ * metadata — the `validateImageUrl` blocklist).
+ *
+ * This is what closes DNS rebinding. `validateImageUrl` resolves the name and
+ * checks the answers, then fetch resolves it again to connect; a name whose
+ * record changes between the two (low TTL, attacker-run DNS) passed the first
+ * and connected to the second. Here the addresses that are checked are the
+ * addresses the socket is given, so there is no second resolution to race.
+ * `validateImageUrl` still runs first: it covers IP literals (which undici
+ * connects to without a lookup) and gives an early, readable refusal.
+ *
+ * The refusal is an Error with `.code === 'ESSRFBLOCKED'`; `request()` rethrows
+ * it as is rather than as a generic network error.
+ *
+ * @param resolve - Resolver to wrap (default `dns.lookup`)
+ * @param isBlocked - Address predicate (default: the SSRF blocklist)
+ * @returns A `lookup` for `new Agent({ connect: { lookup } })`
+ */
+export function createGuardedLookup(
+  resolve: AllAddressResolver = lookupCallback,
+  isBlocked: (ip: string) => boolean = isBlockedIP
+): LookupFunction {
+  return (hostname, options, callback) => {
+    resolve(hostname, { family: options.family, hints: options.hints, all: true }, (err, addresses) => {
+      if (err) {
+        callback(err, '');
+        return;
+      }
+      const blocked = addresses.find(a => isBlocked(a.address));
+      if (blocked || addresses.length === 0) {
+        const refusal: NodeJS.ErrnoException = new Error(
+          blocked
+            ? `Domain ${hostname} resolves to internal/private IP address`
+            : `Domain ${hostname} resolved to no addresses`
+        );
+        refusal.code = SSRF_BLOCKED_CODE;
+        if (blocked) logger.warn(`SECURITY: connect-time lookup of ${hostname} returned blocked IP: ${blocked.address}`);
+        callback(refusal, '');
+        return;
+      }
+      if (options.all) {
+        callback(null, addresses);
+      } else {
+        callback(null, addresses[0].address, addresses[0].family);
+      }
+    });
+  };
+}
+
+/**
+ * The dispatcher every URL download goes through (images and video). Created on first use, not at
+ * import: the library has no import-time side effects (no import-time side effects).
+ * undici must stay on major 7 — see docs/DECISIONS.md #15.
+ */
+let downloadDispatcher: Dispatcher | undefined;
+function getDownloadDispatcher(): Dispatcher {
+  downloadDispatcher ??= new Agent({ connect: { lookup: createGuardedLookup() } });
+  return downloadDispatcher;
 }
 
 /**
@@ -480,6 +654,7 @@ export async function urlToBase64(url: string): Promise<string> {
       // SSRF check can 302 to an internal address and the body comes back
       // anyway — which is exactly what happened under axios.
       validateHop: validateImageUrl,
+      dispatcher: getDownloadDispatcher(),
       maxBytes: MAX_SIZE, // enforced while streaming, not after buffering
     });
 
@@ -563,6 +738,7 @@ export async function downloadMedia(
       timeoutMs: 120000, // 2 minute idle timeout for large files
       maxRedirects: 5,
       validateHop: validateImageUrl, // see urlToBase64
+      dispatcher: getDownloadDispatcher(),
       maxBytes: maxSize, // enforced while streaming, not after buffering
     });
 

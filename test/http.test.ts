@@ -11,12 +11,17 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import http from 'http';
 import type { AddressInfo } from 'net';
 import {
+  request,
   requestJson,
   requestBytes,
   BflHttpError,
   BflNetworkError,
   BflTimeoutError,
 } from '../src/http.js';
+import { Agent } from 'undici';
+import type { LookupAddress } from 'dns';
+import { createGuardedLookup } from '../src/utils.js';
+import type { AllAddressResolver } from '../src/utils.js';
 
 /** Routes keyed by path; each writes its own response. */
 type Handler = (req: http.IncomingMessage, res: http.ServerResponse) => void;
@@ -316,5 +321,90 @@ describe('http: transport failures are typed', () => {
     });
     const bytes = await requestBytes(`${base}/slow`, { timeoutMs: 200 });
     expect(bytes.byteLength).toBe(96);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Connect-time SSRF guard (DNS rebinding). Real sockets and real global fetch
+// with an npm-undici Agent as the dispatcher: this suite is also the evidence
+// that undici 7 pairs with Node's fetch — an undici 8 Agent fails the control
+// with UND_ERR_INVALID_ARG (docs/DECISIONS.md #15).
+// ---------------------------------------------------------------------------
+
+describe('dispatcher: connect-time SSRF guard', () => {
+  let guardServer: http.Server;
+  let port: number;
+  let connections = 0;
+  const agents: Agent[] = [];
+  const agentWith = (lookup: ReturnType<typeof createGuardedLookup>): Agent => {
+    const agent = new Agent({ connect: { lookup } });
+    agents.push(agent);
+    return agent;
+  };
+
+  beforeAll(async () => {
+    guardServer = http.createServer((_req, res) => {
+      res.writeHead(200, { 'content-type': 'text/plain' });
+      res.end('reached');
+    });
+    guardServer.on('connection', () => { connections += 1; });
+    await new Promise<void>(resolve => guardServer.listen(0, '127.0.0.1', resolve));
+    port = (guardServer.address() as AddressInfo).port;
+  });
+  afterAll(async () => {
+    await Promise.all(agents.map(a => a.close()));
+    await new Promise<void>(resolve => guardServer.close(() => resolve()));
+  });
+
+  const loopback: AllAddressResolver = (_host, _opts, cb) => cb(null, [{ address: '127.0.0.1', family: 4 }]);
+  /** Answers public first, loopback after: the rebinding attacker's DNS. */
+  const rebinding = (): AllAddressResolver => {
+    let calls = 0;
+    return (_host, _opts, cb) => {
+      calls += 1;
+      cb(null, [calls === 1 ? { address: '93.184.216.34', family: 4 } : { address: '127.0.0.1', family: 4 }]);
+    };
+  };
+  /** The check validateImageUrl performs, run against the same resolver. */
+  const checkTime = (resolve: AllAddressResolver): Promise<LookupAddress[]> =>
+    new Promise((ok, fail) => resolve('localhost', { all: true }, (err, addrs) => (err ? fail(err) : ok(addrs))));
+
+  it('refuses to connect when the name resolves to a blocked address', async () => {
+    connections = 0;
+    const dispatcher = agentWith(createGuardedLookup(loopback));
+    const error = await request(`http://localhost:${port}/`, { timeoutMs: 5000, dispatcher }).catch(e => e);
+    expect(error.code).toBe('ESSRFBLOCKED');
+    expect(error.message).toContain('resolves to internal/private IP address');
+    expect(connections).toBe(0);
+  });
+
+  it('control: the same request connects when the guard allows the address', async () => {
+    connections = 0;
+    const dispatcher = agentWith(createGuardedLookup(loopback, () => false));
+    const res = await request(`http://localhost:${port}/`, { timeoutMs: 5000, dispatcher });
+    expect(res.status).toBe(200);
+    expect(res.bytes.toString()).toBe('reached');
+    expect(connections).toBe(1);
+  });
+
+  it('rebinding without the guard: the check passes and the connection still lands on loopback', async () => {
+    connections = 0;
+    const resolve = rebinding();
+    expect(await checkTime(resolve)).toEqual([{ address: '93.184.216.34', family: 4 }]);
+    // Unguarded: the connect-time lookup is the attacker's second answer, unchecked.
+    const dispatcher = agentWith(createGuardedLookup(resolve, () => false));
+    const res = await request(`http://localhost:${port}/`, { timeoutMs: 5000, dispatcher });
+    expect(res.status).toBe(200);
+    expect(connections).toBe(1);
+  });
+
+  it('rebinding with the guard: the connect-time answer is checked, so the connection is refused', async () => {
+    connections = 0;
+    const resolve = rebinding();
+    expect(await checkTime(resolve)).toEqual([{ address: '93.184.216.34', family: 4 }]);
+    const dispatcher = agentWith(createGuardedLookup(resolve));
+    const error = await request(`http://localhost:${port}/`, { timeoutMs: 5000, dispatcher }).catch(e => e);
+    expect(error.code).toBe('ESSRFBLOCKED');
+    expect(connections).toBe(0);
   });
 });

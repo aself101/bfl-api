@@ -4,8 +4,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node.js Version](https://img.shields.io/node/v/bfl-api)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-blue.svg)](https://www.typescriptlang.org/)
-[![Tests](https://img.shields.io/badge/tests-364%20passing-brightgreen)](test/)
-[![Coverage](https://img.shields.io/badge/coverage-90.8%25-brightgreen)](test/)
+[![Tests](https://img.shields.io/badge/tests-418%20passing-brightgreen)](test/)
+[![Coverage](https://img.shields.io/badge/coverage-91.5%25-brightgreen)](test/)
 
 A TypeScript/Node.js wrapper for the [Black Forest Labs API](https://docs.bfl.ml/) covering every
 generation endpoint BFL publishes: **FLUX.1**, **FLUX.2** (pro / flex / max / klein), **Kontext**,
@@ -307,6 +307,7 @@ import {
   videoToBase64,       // local file -> base64; URLs pass through
   fileToBase64, urlToBase64,
   validateImageUrl,    // the SSRF check used on every URL and redirect hop
+  createGuardedLookup, // connect-time SSRF guard: a lookup for an undici 7 Agent
   validateImagePath, validateImageFile, validateVideoPath,
   downloadImage, downloadVideo, downloadMedia,
   promptToFilename, generateTimestampedFilename,
@@ -381,8 +382,11 @@ Result URLs are signed and expire after about an hour — download promptly.
 
 - **API key** never appears in logs (redacted to the last four characters) and is sent only to
   `api.bfl.ai` — never to result download URLs.
-- **SSRF protection** on every URL input and download: private/loopback/link-local ranges are
-  blocked, including IPv4-mapped IPv6, with DNS-rebinding prevention.
+- **SSRF protection** on every URL input and download: loopback, private, link-local, metadata,
+  carrier-grade NAT (`100.64/10`), benchmarking (`198.18/15`), `192.0.0/24` and multicast/reserved
+  (`224/3`) are blocked, and the whole of IPv6 `fe80::/10`, `fc00::/7` and `ff00::/8`. An IPv6
+  address embedding an IPv4 one — mapped (dotted or hex), translated, NAT64, IPv4-compatible — is
+  judged by that IPv4. **Every** DNS answer is checked, not the first.
 - **File validation** by magic bytes (PNG/JPEG/WebP/GIF for images, ISO BMFF `ftyp` for video) —
   the extension is not trusted.
 - **Size limits enforced while streaming**, not after buffering: 50 MB video upload (the API's
@@ -392,8 +396,10 @@ Result URLs are signed and expire after about an hour — download promptly.
   before it is followed, so a validated URL cannot `302` to an internal address or downgrade to
   http. Timeouts are idle-based (30 s API, 60 s image, 120 s video), so a slow-but-progressing
   download is not killed; HTTPS is enforced for `baseUrl`.
-- **Known limitation:** DNS rebinding is narrowed, not closed — the hostname is resolved and
-  checked, then resolved again by the HTTP client. See `docs/DECISIONS.md` #12.
+- **DNS rebinding is closed (2.0.2).** Downloads connect through an undici dispatcher whose lookup
+  checks the addresses the socket is actually given, so a name that resolves public at validation
+  and private at connect time is refused before any connection is made. See `docs/DECISIONS.md`
+  #12 and #15.
 - **Destructive CLI actions** (`--delete-finetune`) require `--yes`.
 
 ## Spec drift check
@@ -433,7 +439,7 @@ a `fields` map for 2.0-era parameters.
 
 ```bash
 npm run build                 # tsc → dist/
-npm test                      # 364 tests (vitest)
+npm test                      # 418 tests (vitest)
 npm run test:coverage         # 90.8% lines
 npm run verify                # build + spec control + live spec check + tests — what CI runs
 npm run bfl -- --examples     # run the CLI from source

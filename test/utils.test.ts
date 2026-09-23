@@ -4,6 +4,7 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll, vi, beforeEach, afterEach } from 'vitest';
+import type { Mock } from 'vitest';
 import { httpCalls, installHttpMock, resetHttpMock } from './helpers/http-mock.js';
 import { writeFileSync, unlinkSync, mkdirSync, rmdirSync, existsSync, readdirSync } from 'fs';
 import { join } from 'path';
@@ -30,15 +31,24 @@ import {
   videoToBase64,
   downloadVideo,
   downloadMedia,
+  createGuardedLookup,
+  type AllAddressResolver,
   MAX_VIDEO_UPLOAD_BYTES,
   pause,
   randomNumber
 } from '../src/utils.js';
 import { validateApiKeyFormat } from '../src/config.js';
 import { lookup } from 'dns/promises';
+import type { LookupAddress } from 'dns';
+import { Agent } from 'undici';
 
 
-const mockedLookup = vi.mocked(lookup);
+// validateImageUrl calls lookup(host, { all: true }), which resolves to an
+// array; vi.mocked() picks the single-address overload, so the mock is typed
+// once here for the all-addresses form rather than cast at every call site.
+const mockedLookup = vi.mocked(lookup) as unknown as Mock<
+  (hostname: string, options: { all: true }) => Promise<LookupAddress[]>
+>;
 
 // Re-install the fetch double before every test: afterEach hooks below call
 // vi.resetAllMocks(), which strips mock implementations.
@@ -158,10 +168,10 @@ describe('Image Validation (Security)', () => {
 
     it('should accept valid HTTPS URLs with public IPs', async () => {
       // Mock DNS to return a public IP
-      mockedLookup.mockResolvedValue({ address: '8.8.8.8', family: 4 });
+      mockedLookup.mockResolvedValue([{ address: '8.8.8.8', family: 4 }]);
       await expect(validateImageUrl('https://example.com/image.jpg')).resolves.toBe('https://example.com/image.jpg');
 
-      mockedLookup.mockResolvedValue({ address: '8.8.8.8', family: 4 });
+      mockedLookup.mockResolvedValue([{ address: '8.8.8.8', family: 4 }]);
       await expect(validateImageUrl('https://cdn.example.com/path/to/image.png')).resolves.toBe('https://cdn.example.com/path/to/image.png');
     });
 
@@ -213,42 +223,120 @@ describe('Image Validation (Security)', () => {
 
     // DNS Rebinding Prevention Tests
     it('should reject domains resolving to localhost (DNS rebinding prevention)', async () => {
-      mockedLookup.mockResolvedValue({ address: '127.0.0.1', family: 4 });
+      mockedLookup.mockResolvedValue([{ address: '127.0.0.1', family: 4 }]);
       await expect(validateImageUrl('https://evil.com/image.jpg')).rejects.toThrow('resolves to internal/private IP');
     });
 
     it('should reject domains resolving to private IPs (DNS rebinding prevention)', async () => {
       // Test 10.x.x.x
-      mockedLookup.mockResolvedValue({ address: '10.0.0.1', family: 4 });
+      mockedLookup.mockResolvedValue([{ address: '10.0.0.1', family: 4 }]);
       await expect(validateImageUrl('https://evil.com/image.jpg')).rejects.toThrow('resolves to internal/private IP');
 
       // Test 192.168.x.x
-      mockedLookup.mockResolvedValue({ address: '192.168.1.1', family: 4 });
+      mockedLookup.mockResolvedValue([{ address: '192.168.1.1', family: 4 }]);
       await expect(validateImageUrl('https://evil2.com/image.jpg')).rejects.toThrow('resolves to internal/private IP');
 
       // Test 172.16-31.x.x
-      mockedLookup.mockResolvedValue({ address: '172.16.0.1', family: 4 });
+      mockedLookup.mockResolvedValue([{ address: '172.16.0.1', family: 4 }]);
       await expect(validateImageUrl('https://evil3.com/image.jpg')).rejects.toThrow('resolves to internal/private IP');
     });
 
     it('should reject domains resolving to cloud metadata IPs (DNS rebinding prevention)', async () => {
-      mockedLookup.mockResolvedValue({ address: '169.254.169.254', family: 4 });
+      mockedLookup.mockResolvedValue([{ address: '169.254.169.254', family: 4 }]);
       await expect(validateImageUrl('https://evil.com/image.jpg')).rejects.toThrow('resolves to internal/private IP');
     });
 
     it('should reject domains resolving to IPv6 loopback (DNS rebinding prevention)', async () => {
-      mockedLookup.mockResolvedValue({ address: '::1', family: 6 });
+      mockedLookup.mockResolvedValue([{ address: '::1', family: 6 }]);
       await expect(validateImageUrl('https://evil.com/image.jpg')).rejects.toThrow('resolves to internal/private IP');
     });
 
     it('should reject domains resolving to IPv6 private addresses (DNS rebinding prevention)', async () => {
       // Test fe80: (link-local)
-      mockedLookup.mockResolvedValue({ address: 'fe80::1', family: 6 });
+      mockedLookup.mockResolvedValue([{ address: 'fe80::1', family: 6 }]);
       await expect(validateImageUrl('https://evil.com/image.jpg')).rejects.toThrow('resolves to internal/private IP');
 
       // Test fc00: (unique local)
-      mockedLookup.mockResolvedValue({ address: 'fc00::1', family: 6 });
+      mockedLookup.mockResolvedValue([{ address: 'fc00::1', family: 6 }]);
       await expect(validateImageUrl('https://evil2.com/image.jpg')).rejects.toThrow('resolves to internal/private IP');
+    });
+
+    it('should check every resolved address, not just the first', async () => {
+      mockedLookup.mockResolvedValue([
+        { address: '93.184.216.34', family: 4 },
+        { address: '10.0.0.1', family: 4 },
+      ]);
+      await expect(validateImageUrl('https://mixed.example/image.jpg')).rejects.toThrow('resolves to internal/private IP');
+      expect(mockedLookup).toHaveBeenLastCalledWith('mixed.example', { all: true });
+    });
+
+    it('should reject the whole fc00::/7 unique-local range, not just the fc00:/fd00: literals', async () => {
+      for (const address of ['fd12:3456:789a::1', 'fcff::1', 'FD00::1']) {
+        mockedLookup.mockResolvedValue([{ address, family: 6 }]);
+        await expect(validateImageUrl('https://evil.com/image.jpg'), address).rejects.toThrow('resolves to internal/private IP');
+      }
+    });
+
+    it('should reject the whole fe80::/10 link-local range', async () => {
+      for (const address of ['fe90::1', 'febf::1']) {
+        mockedLookup.mockResolvedValue([{ address, family: 6 }]);
+        await expect(validateImageUrl('https://evil.com/image.jpg'), address).rejects.toThrow('resolves to internal/private IP');
+      }
+    });
+
+    it('should judge an IPv4-mapped IPv6 answer by its embedded IPv4', async () => {
+      mockedLookup.mockResolvedValue([{ address: '::ffff:10.0.0.1', family: 6 }]);
+      await expect(validateImageUrl('https://evil.com/image.jpg')).rejects.toThrow('resolves to internal/private IP');
+    });
+
+    it('should not over-block: short hextets and public IPv6 pass', async () => {
+      // fd1:: is 0x0fd1 (implied leading zero) — not ULA. 2606:... is public.
+      for (const address of ['fd1::1', 'fe8::1', '2606:4700::6810:84e5', '::ffff:93.184.216.34']) {
+        mockedLookup.mockResolvedValue([{ address, family: 6 }]);
+        await expect(validateImageUrl('https://ok.example/image.jpg'), address).resolves.toBe('https://ok.example/image.jpg');
+      }
+    });
+
+    // Both edges of every IPv4 private range, plus the adjacent public
+    // addresses: a range regex that drops its top end (e.g. 172.31.x.x)
+    // passed stability-ai-api's suite until its ship run #3 mutated it.
+    it.each([
+      '10.0.0.0', '10.255.255.255', '172.16.0.0', '172.31.255.255', '192.168.0.0', '192.168.255.255',
+      '169.254.0.1', '169.254.255.254', '100.64.0.0', '100.127.255.255', '127.255.255.254', '0.0.0.1',
+    ])('blocks private/reserved edge %s', async (ip) => {
+      await expect(validateImageUrl(`https://${ip}/x.png`)).rejects.toThrow(/internal|private|localhost/);
+    });
+
+    it.each(['9.255.255.255', '11.0.0.1', '172.15.255.255', '172.32.0.1', '192.167.255.255', '192.169.0.1', '100.63.255.255', '100.128.0.0', '223.255.255.254'])(
+      'allows the adjacent public address %s', async (ip) => {
+        await expect(validateImageUrl(`https://${ip}/x.png`)).resolves.toBe(`https://${ip}/x.png`);
+      });
+
+    // The hex spellings are what validateImageUrl sees after new URL() parsing:
+    // https://[::ffff:127.0.0.1] becomes [::ffff:7f00:1]. Until 2.0.2 only the
+    // dotted form was recognised, so the hex form of loopback got through
+    // (found in stability-ai-api's ship pipeline; same code here).
+    it.each([
+      ['https://[::ffff:7f00:1]/x.png', 'IPv4-mapped loopback, hex'],
+      ['https://[::ffff:a9fe:a9fe]/x.png', 'IPv4-mapped metadata, hex'],
+      ['https://[64:ff9b::a9fe:a9fe]/x.png', 'NAT64 metadata'],
+      ['https://[::ffff:0:a00:1]/x.png', 'IPv4-translated 10.0.0.1'],
+      ['https://[::7f00:1]/x.png', 'IPv4-compatible loopback'],
+      ['https://100.64.1.1/x.png', 'carrier-grade NAT'],
+      ['https://198.18.0.1/x.png', 'benchmarking range'],
+      ['https://[ff02::1]/x.png', 'IPv6 multicast'],
+    ])('blocks %s (%s)', async (url) => {
+      await expect(validateImageUrl(url)).rejects.toThrow(/internal|private|localhost/);
+    });
+
+    it.each(['https://100.128.0.1/x.png', 'https://[::ffff:5db8:d822]/x.png', 'https://[2606:4700::6810:84e5]/x.png'])(
+      'allows public %s', async (url) => {
+        await expect(validateImageUrl(url)).resolves.toBe(url);
+      });
+
+    it('judges a DNS answer in hex IPv4-mapped form by its IPv4', async () => {
+      mockedLookup.mockResolvedValue([{ address: '::ffff:a00:1', family: 6 }]);
+      await expect(validateImageUrl('https://evil.example/x.png')).rejects.toThrow('resolves to internal/private IP');
     });
 
     it('should handle DNS lookup failures gracefully', async () => {
@@ -533,7 +621,7 @@ describe('Image Conversion', () => {
   describe('urlToBase64', () => {
     beforeEach(() => {
       // Mock DNS to return public IP for URL tests
-      mockedLookup.mockResolvedValue({ address: '8.8.8.8', family: 4 });
+      mockedLookup.mockResolvedValue([{ address: '8.8.8.8', family: 4 }]);
     });
 
     it('should download and convert image from URL to base64', async () => {
@@ -552,6 +640,15 @@ describe('Image Conversion', () => {
       // Transport options (timeout, redirect budget, size cap) are internal to
       // src/http.ts now; see test/http.test.ts for their behaviour.
       expect(httpCalls.get).toHaveBeenCalledWith('https://example.com/image.jpg', expect.anything());
+    });
+
+    it('URL-to-base64 downloads go through the connect-time SSRF guard dispatcher', async () => {
+      httpCalls.get.mockResolvedValue({ data: Buffer.from([0xFF, 0xD8, 0xFF, 0xE0, 0, 0]), headers: { 'content-type': 'image/jpeg' } });
+      await urlToBase64('https://example.com/image.jpg');
+      const dispatcher = httpCalls.get.mock.calls[0][1].dispatcher;
+      expect(dispatcher).toBeInstanceOf(Agent);
+      await urlToBase64('https://example.com/image.jpg');
+      expect(httpCalls.get.mock.calls[1][1].dispatcher).toBe(dispatcher);
     });
 
     it('should reject files exceeding size limit', async () => {
@@ -584,7 +681,7 @@ describe('Image Conversion', () => {
 
   describe('imageToBase64', () => {
     beforeEach(() => {
-      mockedLookup.mockResolvedValue({ address: '8.8.8.8', family: 4 });
+      mockedLookup.mockResolvedValue([{ address: '8.8.8.8', family: 4 }]);
     });
 
     it('should handle local file paths', async () => {
@@ -637,7 +734,7 @@ describe('Image Conversion', () => {
 
   describe('downloadImage', () => {
     beforeEach(() => {
-      mockedLookup.mockResolvedValue({ address: '8.8.8.8', family: 4 });
+      mockedLookup.mockResolvedValue([{ address: '8.8.8.8', family: 4 }]);
     });
 
     it('should download image and save to file', async () => {
@@ -706,7 +803,7 @@ describe('Video Inputs and Downloads', () => {
     writeFileSync(movFile, ftyp('qt  '));
     writeFileSync(notVideo, Buffer.from([0x89, 0x50, 0x4e, 0x47, ...new Array(100).fill(0)]));
     writeFileSync(emptyFile, Buffer.alloc(0));
-    mockedLookup.mockResolvedValue({ address: '8.8.8.8', family: 4 });
+    mockedLookup.mockResolvedValue([{ address: '8.8.8.8', family: 4 }]);
   });
 
   afterAll(() => {
@@ -764,7 +861,7 @@ describe('Video Inputs and Downloads', () => {
 
   describe('downloadVideo / downloadMedia', () => {
     beforeEach(() => {
-      mockedLookup.mockResolvedValue({ address: '8.8.8.8', family: 4 });
+      mockedLookup.mockResolvedValue([{ address: '8.8.8.8', family: 4 }]);
     });
 
     it('downloads a video with the larger ceiling', async () => {
@@ -773,6 +870,14 @@ describe('Video Inputs and Downloads', () => {
       await downloadVideo('https://example.com/v.mp4', out);
       expect(existsSync(out)).toBe(true);
       expect(httpCalls.get).toHaveBeenCalledWith('https://example.com/v.mp4', expect.anything());
+      unlinkSync(out);
+    });
+
+    it('video downloads go through the connect-time SSRF guard dispatcher', async () => {
+      const out = join(testDir, 'guarded.mp4');
+      httpCalls.get.mockResolvedValue({ data: ftyp('mp42'), headers: {} });
+      await downloadVideo('https://example.com/v.mp4', out);
+      expect(httpCalls.get.mock.calls[0][1].dispatcher).toBeInstanceOf(Agent);
       unlinkSync(out);
     });
 
@@ -832,5 +937,58 @@ describe('Utility Helpers', () => {
       expect(result).toBeGreaterThanOrEqual(0);
       expect(result).toBeLessThanOrEqual(1000000);
     });
+  });
+});
+
+describe('createGuardedLookup (connect-time SSRF guard)', () => {
+  const resolver = (addresses: LookupAddress[] | undefined, err: NodeJS.ErrnoException | null = null): AllAddressResolver =>
+    (_host, _opts, cb) => cb(err, addresses as LookupAddress[]);
+  type Outcome = { err: NodeJS.ErrnoException | null; address: string | LookupAddress[]; family?: number };
+  const run = (lookupFn: ReturnType<typeof createGuardedLookup>, options: object): Promise<Outcome> =>
+    new Promise(resolve => lookupFn('cdn.example', options, (err, address, family) => resolve({ err, address, family })));
+
+  it('passes every address through when all are public (all: true)', async () => {
+    const addrs = [{ address: '93.184.216.34', family: 4 }, { address: '2606:2800:220:1::1', family: 6 }];
+    const { err, address } = await run(createGuardedLookup(resolver(addrs)), { all: true });
+    expect(err).toBeNull();
+    expect(address).toEqual(addrs);
+  });
+
+  it('returns the first address and its family when all is not requested', async () => {
+    const { err, address, family } = await run(createGuardedLookup(resolver([{ address: '93.184.216.34', family: 4 }])), {});
+    expect(err).toBeNull();
+    expect(address).toBe('93.184.216.34');
+    expect(family).toBe(4);
+  });
+
+  it.each([
+    ['one private among public', [{ address: '93.184.216.34', family: 4 }, { address: '10.0.0.1', family: 4 }]],
+    ['loopback', [{ address: '127.0.0.1', family: 4 }]],
+    ['cloud metadata', [{ address: '169.254.169.254', family: 4 }]],
+    ['IPv6 unique-local', [{ address: 'fd12:3456::1', family: 6 }]],
+    ['hex IPv4-mapped loopback', [{ address: '::ffff:7f00:1', family: 6 }]],
+  ] as [string, LookupAddress[]][])('refuses with ESSRFBLOCKED: %s', async (_label, addrs) => {
+    const { err } = await run(createGuardedLookup(resolver(addrs)), { all: true });
+    expect(err?.code).toBe('ESSRFBLOCKED');
+    expect(err?.message).toContain('resolves to internal/private IP address');
+  });
+
+  it('refuses an empty answer rather than handing undici nothing', async () => {
+    const { err } = await run(createGuardedLookup(resolver([])), { all: true });
+    expect(err?.code).toBe('ESSRFBLOCKED');
+  });
+
+  it('passes a resolver error through unchanged', async () => {
+    const dnsError = Object.assign(new Error('getaddrinfo ENOTFOUND cdn.example'), { code: 'ENOTFOUND' });
+    const { err } = await run(createGuardedLookup(resolver(undefined, dnsError)), { all: true });
+    expect(err).toBe(dnsError);
+  });
+
+  it('always asks the resolver for every address, whatever the caller asked for', async () => {
+    const seen: unknown[] = [];
+    const spy: AllAddressResolver = (_host, opts, cb) => { seen.push(opts.all); cb(null, [{ address: '93.184.216.34', family: 4 }]); };
+    await run(createGuardedLookup(spy), {});
+    await run(createGuardedLookup(spy), { all: false });
+    expect(seen).toEqual([true, true]);
   });
 });

@@ -227,11 +227,22 @@ Two related fixes landed with it:
   `imageToBase64` validated before delegating. The test that claimed to cover
   this (`should reject HTTP URLs`) passed for an unrelated reason: with no mock
   configured, `response.data` was `undefined` and threw.
-- DNS rebinding is still **not** closed. `validateImageUrl` resolves and checks,
-  then the client resolves again independently — a TOCTOU window either way.
+- DNS rebinding was left open at 2.0.1: `validateImageUrl` resolved and
+  checked, then the client resolved again independently — a TOCTOU window.
   Closing it needs a pinned-IP dispatcher, which means taking `undici` as an
-  explicit dependency (it is not importable as a core module), which would undo
-  the point of #11. Recorded as a known limitation, not an oversight.
+  explicit dependency, and 2.0.1 declined that as undoing the point of #11.
+  **Reversed in 2.0.2** (#15), for the reason #11 itself gives: what made axios
+  worth removing was its subtree (2.4 MB, 8 transitive packages). undici has no
+  dependencies, is 1.65 MB, and is the engine global fetch already runs on.
+
+**2.0.2 also closed the three check gaps** stability-ai-api's DECISIONS #10
+found in this same code: only the first DNS answer was checked (`lookup(host)`;
+a name with one public and one private record passed); IPv6 ranges were matched
+as literals (`/^fd00:/` passed `fd12:3456::1` and the rest of `fc00::/7`;
+`/^fe80:/` missed the rest of `fe80::/10`); and only the dotted IPv4-mapped form
+was recognised, while Node's URL parser rewrites `[::ffff:127.0.0.1]` to
+`[::ffff:7f00:1]`, so the hex form of loopback passed. The two packages' SSRF
+code is now the same again; a fix to one should be carried to the other.
 
 ## 13. Retry classification is by type, never by message
 
@@ -277,3 +288,29 @@ That set difference is the check worth running before picking any version number
 for a package with an unpublish in its history. A pre-publish audit that only
 consults `versions` will clear a version the registry will then reject.
 
+## 15. `undici` is a dependency, pinned to major 7
+
+Ported with the rebinding guard from stability-ai-api 1.0.1 (its DECISIONS #23),
+reversing the 2.0.1 call recorded in #12. Media downloads go through an undici
+`Agent` whose `connect.lookup` (`createGuardedLookup`) resolves every address and
+refuses if any is blocked, so the addresses checked are the addresses the socket
+gets. `validateImageUrl` still runs first: undici connects to IP literals without
+a lookup, and the early check gives the readable refusal. API calls keep the
+default dispatcher.
+
+It stays on **major 7**, for a measured reason: on both Node 22.23 (bundled undici
+6.28) and Node 24.14 (bundled 7.24), global `fetch` rejects an undici **8** `Agent`
+with `UND_ERR_INVALID_ARG` on every request — the happy path included — while an
+undici 7 `Agent` works on both (checked 2026-09-22). A bump to 8 would break every
+download.
+
+Global `fetch` is kept rather than moving downloads to undici's own `fetch`,
+because `test/helpers/http-mock.ts` stubs the global; moving off it would exempt
+downloads from the whole mocked suite. The `@types/node` / npm-undici type seam is
+bridged at one commented site in `request()` rather than by pinning undici to
+whatever `undici-types` version `@types/node` carries.
+
+**Guarded by** `dispatcher: connect-time SSRF guard` in `test/http.test.ts`: real
+global fetch, real `Agent`, local server. A resolver answering public then loopback
+reaches the server without the guard and is refused with it; with undici 8
+installed all four tests fail (checked). Revisit when Node's bundled undici reaches 8.
